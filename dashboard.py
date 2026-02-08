@@ -91,6 +91,21 @@ def main():
         st.error("Données non trouvées.")
         return
 
+    # DEBUG: Temporary expander to investigate server-side data issues
+    with st.expander("🕵️ Debug / Inspection des Données (Admin)"):
+        st.info("Utilisez ceci pour comprendre pourquoi les graphiques sont différents du local.")
+        st.write(f"Dimensions du fichier: {df.shape[0]} lignes, {df.shape[1]} colonnes")
+        st.write("Aperçu des données brutes (Head):", df.head(3))
+        st.write("Types de colonnes:", df.dtypes.astype(str))
+        
+        # Check specific columns causing issues
+        if 'Jours de Stock' in df.columns:
+             st.write("Jours de Stock (Premières valeurs):", df['Jours de Stock'].head(5))
+             st.write(f"Nb de valeurs nulles/NaN dans Jours de Stock: {df['Jours de Stock'].isna().sum()}")
+        
+        if 'Balance' in df.columns:
+             st.write("Balance (Premières valeurs):", df['Balance'].head(5))
+
     # Filters
     # Hierarchy: Site -> Routes (Rte_X) -> Sous-Zone (SITENAME)
     all_sites = ["Tous"] + sorted(list(df['Site'].dropna().unique()))
