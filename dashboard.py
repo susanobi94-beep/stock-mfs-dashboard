@@ -111,7 +111,8 @@ def metric_card(title, value, delta=None, color="black"):
 def main():
     # Sidebar Logo
     if os.path.exists(LOGO_FILE):
-        st.sidebar.image(LOGO_FILE, use_container_width=True)
+        # NOTE: Using use_column_width for compatibility with older Streamlit versions (1.31.x on HF)
+        st.sidebar.image(LOGO_FILE, use_column_width=True)
     
     st.sidebar.markdown("<h3 style='color: white;'>Filtres</h3>", unsafe_allow_html=True)
     
@@ -268,6 +269,7 @@ def main():
                 range_color=[0, 1.5],
             )
             fig_tree.update_layout(height=450, margin=dict(t=20, l=10, r=10, b=10))
+            # use_container_width=True IS supported for charts in older versions
             st.plotly_chart(fig_tree, use_container_width=True)
         else:
             st.success("Aucun manque de stock détecté.")
@@ -288,6 +290,7 @@ def main():
             hole=0.4
         )
         fig_pie.update_layout(height=450, showlegend=True, legend=dict(orientation="h", y=-0.1))
+        # use_container_width=True IS supported for charts in older versions
         st.plotly_chart(fig_pie, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -315,6 +318,7 @@ def main():
         yaxis_title="Stock Actuel (Balance)",
         legend=dict(orientation="h", y=1.02, x=0.8)
     )
+    # use_container_width=True IS supported for charts in older versions
     st.plotly_chart(fig_scatter, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -338,6 +342,7 @@ def main():
 
     st.dataframe(
         df_table[display_cols],
+        # use_container_width=True IS supported for dataframes in older versions (since ~1.2x)
         use_container_width=True,
         hide_index=True
     )
