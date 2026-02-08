@@ -123,6 +123,11 @@ def reconcile_data():
         for col in numeric_final_cols:
             if col in df_final.columns:
                 df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
+        
+        # Ensure "Numero" is specifically numeric (Int64)
+        if 'Numero' in df_final.columns:
+            # Convert to numeric, errors become NaN, fill with 0, convert to int
+            df_final['Numero'] = pd.to_numeric(df_final['Numero'], errors='coerce').fillna(0).astype('int64')
 
         # Save to Excel
         print(f"Saving to {OUTPUT_FILE}...")
