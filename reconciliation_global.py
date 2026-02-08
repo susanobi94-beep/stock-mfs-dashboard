@@ -7,7 +7,7 @@ OOS_FILE = r'c:\Users\user\Downloads\r2b\OOS1.xlsx'
 OUTPUT_FILE = r'c:\Users\user\Downloads\r2b\reconciliation.xlsx'
 
 def reconcile_data():
-    print("Starting data reconciliation...")
+    print("Starting data reconciliation (Global Script)...")
     
     if not os.path.exists(SUMMARY_FILE):
         print(f"Error: Summary file {SUMMARY_FILE} not found.")
@@ -25,18 +25,9 @@ def reconcile_data():
 
         # Normalize Columns for Merging
         if 'Number' in df_summary.columns:
-            df_summary['Number'] = df_summary['Number'].astype(str)
+            df_summary['Number'] = df_summary['Number'].astype(str).str.strip()
         
         # OOS1 specific column handling
-        # Dashboard requirements: Site (Broad), Sous-Zone (Specific), Routes (Distribution Rte_X)
-        # OOS1 columns: 'ISL_Terr' (Broad), 'SITENAME' (Narrow), 'Routes' (Rte_X), 'Agent MSISDN', 'Average of oos_target'
-        # Mapping:
-        # Agent MSISDN -> AGENT_MSISDN
-        # Average of oos_target -> Montants OOS
-        # ISL_Terr -> Site
-        # SITENAME -> Sous-Zone
-        # Routes -> Routes (Keep original)
-        
         oos_rename_map = {
             'Agent MSISDN': 'AGENT_MSISDN',
             'Average of oos_target': 'Montants OOS',
@@ -51,28 +42,23 @@ def reconcile_data():
         
         if 'AGENT_MSISDN' not in df_oos.columns:
             print("Error: 'Agent MSISDN' column not found in OOS file.")
-            print(f"Available columns: {available_cols}")
             return
 
-        df_oos['AGENT_MSISDN'] = df_oos['AGENT_MSISDN'].astype(str)
+        df_oos['AGENT_MSISDN'] = df_oos['AGENT_MSISDN'].astype(str).str.strip()
         
         # Deduplicate OOS data
         if df_oos.duplicated(subset=['AGENT_MSISDN']).any():
             print("Detailed OOS data contains duplicates for agents. Aggregating...")
             
             # 1. Numeric aggregation (Mean)
-            numeric_cols = []
             if 'Montants OOS' in df_oos.columns:
-                 numeric_cols.append('Montants OOS')
-            
-            if numeric_cols:
-                cols_to_use = ['AGENT_MSISDN'] + numeric_cols
-                df_numeric = df_oos[cols_to_use].groupby('AGENT_MSISDN', as_index=False).mean()
+                 # Force numeric before groupby to avoid errors
+                 df_oos['Montants OOS'] = pd.to_numeric(df_oos['Montants OOS'], errors='coerce').fillna(0.0)
+                 df_numeric = df_oos[['AGENT_MSISDN', 'Montants OOS']].groupby('AGENT_MSISDN', as_index=False).mean()
             else:
-                df_numeric = df_oos[['AGENT_MSISDN']].drop_duplicates()
+                 df_numeric = df_oos[['AGENT_MSISDN']].drop_duplicates()
 
             # 2. Categorical aggregation (First)
-            # Prioritize categorical columns: Site, Sous-Zone, Routes, segment_group, TERRITORY CORRECT
             desired_cat_cols = ['Site', 'Sous-Zone', 'Routes', 'segment_group', 'TERRITORY CORRECT']
             cat_cols = [c for c in desired_cat_cols if c in df_oos.columns]
             
@@ -88,25 +74,24 @@ def reconcile_data():
         print("Merging data...")
         df_merged = pd.merge(df_summary, df_oos, left_on='Number', right_on='AGENT_MSISDN', how='inner')
 
-        # Calculate Values
+        # Calculate Values with Explicit Type Conversion
         print("Calculating metrics...")
         
-        if 'Montants OOS' in df_merged.columns:
-            df_merged['Montants OOS'] = pd.to_numeric(df_merged['Montants OOS'], errors='coerce').fillna(0)
-        else:
-            df_merged['Montants OOS'] = 0
-            
-        if 'Balance' in df_merged.columns:
-            df_merged['Balance'] = pd.to_numeric(df_merged['Balance'], errors='coerce').fillna(0)
-        else:
-            df_merged['Balance'] = 0
+        # Force float type for numeric columns
+        df_merged['Montants OOS'] = pd.to_numeric(df_merged.get('Montants OOS', 0), errors='coerce').fillna(0.0)
+        df_merged['Balance'] = pd.to_numeric(df_merged.get('Balance', 0), errors='coerce').fillna(0.0)
         
         df_merged['Valeur Calculee'] = df_merged['Balance'] - df_merged['Montants OOS']
         
-        def clean_div(x, y):
-            return (x / y) if y != 0 else 0
+        # Avoid division by zero and ensure float result
+        def clean_div(row):
+            oos = float(row['Montants OOS'])
+            bal = float(row['Balance'])
+            if oos == 0:
+                return 0.0
+            return bal / oos
 
-        df_merged['Jours de Stock'] = df_merged.apply(lambda row: clean_div(row['Balance'], row['Montants OOS']), axis=1)
+        df_merged['Jours de Stock'] = df_merged.apply(clean_div, axis=1)
 
         if 'nom et prenoms' not in df_merged.columns:
              df_merged['nom et prenoms'] = df_merged['Number']
@@ -133,11 +118,18 @@ def reconcile_data():
         df_final = df_merged[existing_cols]
         df_final = df_final.rename(columns=final_columns_map)
 
+        # Final check on types before saving
+        numeric_final_cols = ['Montants OOS', 'Balance', 'Valeur Calculee', 'Jours de Stock']
+        for col in numeric_final_cols:
+            if col in df_final.columns:
+                df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
+
         # Save to Excel
         print(f"Saving to {OUTPUT_FILE}...")
         df_final.to_excel(OUTPUT_FILE, index=False)
         print("Reconciliation complete.")
-        print(f"Preview:\n{df_final.head()}")
+        print(f"Preview types:\n{df_final.dtypes}")
+        print(f"Preview head:\n{df_final.head()}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
