@@ -57,13 +57,18 @@ def load_data():
             else:
                 df[col] = 0.0
 
-        # Ensure text columns are strings to avoid mixed types
-        text_cols = ['Site', 'Routes', 'Sous-Zone', 'Noms', 'Numero']
+        # Ensure text columns are strings to avoid mixed types, EXCEPT Numero
+        text_cols = ['Site', 'Routes', 'Sous-Zone', 'Noms']
         for col in text_cols:
              if col in df.columns:
                  df[col] = df[col].astype(str).replace('nan', 'Inconnu')
              else:
                  df[col] = 'Inconnu'
+        
+        # Numeric handling for Numero if requested
+        if 'Numero' in df.columns:
+            # Try to keep as Int64 to avoid scientific notation but keep numeric sortability
+            df['Numero'] = pd.to_numeric(df['Numero'], errors='coerce').fillna(0).astype('int64')
 
         return df
     except Exception as e:
@@ -91,20 +96,7 @@ def main():
         st.error("Données non trouvées.")
         return
 
-    # DEBUG: Temporary expander to investigate server-side data issues
-    with st.expander("🕵️ Debug / Inspection des Données (Admin)"):
-        st.info("Utilisez ceci pour comprendre pourquoi les graphiques sont différents du local.")
-        st.write(f"Dimensions du fichier: {df.shape[0]} lignes, {df.shape[1]} colonnes")
-        st.write("Aperçu des données brutes (Head):", df.head(3))
-        st.write("Types de colonnes:", df.dtypes.astype(str))
-        
-        # Check specific columns causing issues
-        if 'Jours de Stock' in df.columns:
-             st.write("Jours de Stock (Premières valeurs):", df['Jours de Stock'].head(5))
-             st.write(f"Nb de valeurs nulles/NaN dans Jours de Stock: {df['Jours de Stock'].isna().sum()}")
-        
-        if 'Balance' in df.columns:
-             st.write("Balance (Premières valeurs):", df['Balance'].head(5))
+    # Debug removed as data is confirmed present
 
     # Filters
     # Hierarchy: Site -> Routes (Rte_X) -> Sous-Zone (SITENAME)
@@ -204,16 +196,25 @@ def main():
     def classify_pos(days):
         try:
             d = float(days)
-            if d < 0.5: return "🔴 Rupture"
-            if d < 1.0: return "🟠 Tension"
-            if d <= 3.0: return "🟢 Confort"
-            return "🔵 Surstock"
+            # Remove emojis to avoid encoding issues on server
+            if d < 0.5: return "Rupture"   # Red
+            if d < 1.0: return "Tension"   # Orange
+            if d <= 3.0: return "Confort"  # Green
+            return "Surstock"              # Blue
         except:
-            return "⚪ Erreur"
+            return "Erreur"
 
     df_filtered['Statut'] = df_filtered['Jours de Stock'].apply(classify_pos)
-    category_order = ["🔴 Rupture", "🟠 Tension", "🟢 Confort", "🔵 Surstock", "⚪ Erreur"]
-    colors_map = {"🔴 Rupture": "#d32f2f", "🟠 Tension": "#f57c00", "🟢 Confort": "#2e7d32", "🔵 Surstock": "#1976d2", "⚪ Erreur": "#gray"}
+    
+    # Updated without emojis
+    category_order = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
+    colors_map = {
+        "Rupture": "#d32f2f", 
+        "Tension": "#f57c00", 
+        "Confort": "#2e7d32", 
+        "Surstock": "#1976d2", 
+        "Erreur": "gray"
+    }
 
     with c1:
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
