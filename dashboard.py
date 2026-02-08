@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import altair as alt
 import os
 
 # Configuration
@@ -49,7 +48,6 @@ def load_data():
         df = pd.read_excel(DATA_FILE)
         
         # --- ROBUST DATA CLEANING ---
-        # Ensure numeric columns are actually numeric, coercing errors to NaN then 0
         numeric_cols = ['Balance', 'Montants OOS', 'Jours de Stock', 'Valeur Calculee']
         for col in numeric_cols:
             if col in df.columns:
@@ -57,7 +55,6 @@ def load_data():
             else:
                 df[col] = 0.0
 
-        # Ensure text columns are strings to avoid mixed types, EXCEPT Numero
         text_cols = ['Site', 'Routes', 'Sous-Zone', 'Noms']
         for col in text_cols:
              if col in df.columns:
@@ -65,9 +62,7 @@ def load_data():
              else:
                  df[col] = 'Inconnu'
         
-        # Numeric handling for Numero if requested
         if 'Numero' in df.columns:
-            # Try to keep as Int64 to avoid scientific notation but keep numeric sortability
             df['Numero'] = pd.to_numeric(df['Numero'], errors='coerce').fillna(0).astype('int64')
 
         return df
@@ -97,7 +92,6 @@ def main():
         return
 
     # Filters
-    # Hierarchy: Site -> Routes (Rte_X) -> Sous-Zone (SITENAME)
     all_sites = ["Tous"] + sorted(list(df['Site'].dropna().unique()))
     selected_site = st.sidebar.selectbox("Site", all_sites)
     
@@ -131,7 +125,6 @@ def main():
     sleeping_cash = df_filtered[df_filtered['Jours de Stock'] > 5.0]['Balance'].sum()
     
     total_pos = len(df_filtered)
-    # Ensure strict comparison for float
     pos_rupture = df_filtered[df_filtered['Jours de Stock'] < 0.5].shape[0]
     rupture_rate_val = (pos_rupture / total_pos * 100) if total_pos > 0 else 0
     
@@ -184,17 +177,15 @@ def main():
         with cols[1]: 
             if not c_ndog.empty: quick_kpi(c_ndog, "Ndogbong")
 
-    # --- Charts ---
+    # --- Charts with Altair (Replacing Plotly) ---
     c1, c2 = st.columns([2, 1])
     
-    # Recalculate Gap with ensuring floats
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
-    df_recharge = df_filtered[df_filtered['Manque (Gap)'] > 0]
+    df_recharge = df_filtered[df_filtered['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False).head(20)
     
     def classify_pos(days):
         try:
             d = float(days)
-            # Remove emojis to be safe
             if d < 0.5: return "Rupture"
             if d < 1.0: return "Tension"
             if d <= 3.0: return "Confort"
@@ -204,31 +195,20 @@ def main():
 
     df_filtered['Statut'] = df_filtered['Jours de Stock'].apply(classify_pos)
     
-    category_order = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
-    colors_map = {
-        "Rupture": "#d32f2f", 
-        "Tension": "#f57c00", 
-        "Confort": "#2e7d32", 
-        "Surstock": "#1976d2", 
-        "Erreur": "gray"
-    }
+    domain = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
+    range_ = ["#d32f2f", "#f57c00", "#2e7d32", "#1976d2", "gray"]
 
     with c1:
         st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-        st.subheader("📍 Où manque-t-il de l'argent ?")
+        st.subheader("📍 Où manque-t-il de l'argent ? (Top 20)")
         if not df_recharge.empty:
-            path_hierarchy = [px.Constant("Parc"), 'Site', 'Routes', 'Sous-Zone', 'Noms']
-            fig_tree = px.treemap(
-                df_recharge,
-                path=path_hierarchy,
-                values='Manque (Gap)',
-                color='Jours de Stock',
-                color_continuous_scale='RdYlGn',
-                range_color=[0, 3.0], 
-            )
-            fig_tree.update_layout(height=450, margin=dict(t=20, l=10, r=10, b=10))
-            # Explicitly set theme
-            st.plotly_chart(fig_tree, use_container_width=True, theme="streamlit")
+            chart_gap = alt.Chart(df_recharge).mark_bar().encode(
+                x=alt.X('Manque (Gap)', title='Montant à recharger'),
+                y=alt.Y('Noms', sort='-x', title='Agent / POS'),
+                color=alt.Color('Jours de Stock', scale=alt.Scale(scheme='redyellowgreen'), title='Jours Stock'),
+                tooltip=['Noms', 'Manque (Gap)', 'Jours de Stock', 'Site']
+            ).interactive()
+            st.altair_chart(chart_gap, use_container_width=True)
         else:
             st.success("Aucun manque de stock détecté.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -238,47 +218,29 @@ def main():
         st.subheader("📊 État du Parc")
         pie_data = df_filtered['Statut'].value_counts().reset_index()
         pie_data.columns = ['Statut', 'Compte']
-        fig_pie = px.pie(
-            pie_data, 
-            values='Compte', 
-            names='Statut',
-            color='Statut',
-            color_discrete_map=colors_map,
-            category_orders={'Statut': category_order},
-            hole=0.4
-        )
-        fig_pie.update_layout(height=450, showlegend=True, legend=dict(orientation="h", y=-0.1))
-        st.plotly_chart(fig_pie, use_container_width=True, theme="streamlit")
+        
+        chart_pie = alt.Chart(pie_data).mark_bar().encode(
+            x='Compte',
+            y=alt.Y('Statut', sort=domain),
+            color=alt.Color('Statut', scale=alt.Scale(domain=domain, range=range_), legend=None),
+            tooltip=['Statut', 'Compte']
+        ).properties(height=300)
+        
+        st.altair_chart(chart_pie, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # Row 2: Scatter
     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
     st.subheader("📈 Précision du Stockage (Balance vs Cible)")
     
-    # Use standard size to ensure visibility
-    fig_scatter = px.scatter(
-        df_filtered, 
-        x='Montants OOS', 
-        y='Balance', 
-        color='Statut',
-        hover_name='Noms',
-        hover_data=['Site', 'Routes', 'Sous-Zone', 'Numero', 'Jours de Stock'],
-        color_discrete_map=colors_map,
-        category_orders={'Statut': category_order},
-        opacity=0.7
-    )
-    max_val = max(df_filtered['Montants OOS'].max(), df_filtered['Balance'].max()) if not df_filtered.empty else 100
-    fig_scatter.add_shape(type="line", line=dict(dash='dash', color='gray'), x0=0, y0=0, x1=max_val, y1=max_val)
+    chart_scatter = alt.Chart(df_filtered).mark_circle(size=60).encode(
+        x=alt.X('Montants OOS', title='Objectif (OOS)'),
+        y=alt.Y('Balance', title='Stock Actuel'),
+        color=alt.Color('Statut', scale=alt.Scale(domain=domain, range=range_)),
+        tooltip=['Noms', 'Numero', 'Balance', 'Montants OOS', 'Jours de Stock', 'Site']
+    ).interactive().properties(height=500)
     
-    # Increase marker size explicitly
-    fig_scatter.update_traces(marker=dict(size=12))
-    
-    fig_scatter.update_layout(
-        height=500, template="plotly_white",
-        xaxis_title="Besoin (OOS)", yaxis_title="Stock Actuel (Balance)",
-        legend=dict(orientation="h", y=1.02, x=0.8)
-    )
-    st.plotly_chart(fig_scatter, use_container_width=True, theme="streamlit")
+    st.altair_chart(chart_scatter, use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Row 3: Action Table
