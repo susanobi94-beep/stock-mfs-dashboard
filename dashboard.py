@@ -20,7 +20,7 @@ st.markdown("""
         background-color: #f8f9fa;
     }
     
-    /* Card Style */
+    /* Card Style - Responsive */
     .metric-card {
         background-color: #ffffff;
         border-radius: 10px;
@@ -28,6 +28,7 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         text-align: center;
         margin-bottom: 20px;
+        height: 100%; /* Fill column height */
     }
     .metric-title {
         font-size: 14px;
@@ -36,9 +37,14 @@ st.markdown("""
         letter-spacing: 1px;
     }
     .metric-value {
-        font-size: 32px;
+        font-size: 24px; /* Slightly smaller for mobile safety */
         font-weight: bold;
         color: #2c3e50;
+    }
+    @media (min-width: 768px) {
+        .metric-value {
+            font-size: 32px;
+        }
     }
     .metric-delta {
         font-size: 14px;
@@ -57,9 +63,9 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* Header */
+    /* Header - Responsive */
     .header-style {
-        font-size: 85px; /* Increased from 65px */
+        font-size: 40px; /* Default for mobile */
         font-weight: 900;
         color: #000000;
         text-align: center;
@@ -67,13 +73,18 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 2px;
     }
+    @media (min-width: 768px) {
+        .header-style {
+            font-size: 85px; /* Large for desktop */
+        }
+    }
     
     /* Sidebar */
     [data-testid="stSidebar"] {
         background-color: #000000;
         color: #ffffff;
     }
-    [data-testid="stSidebar"] .css-17lntkn { /* Streamlit specific classes might vary, standard markdown usually safer */
+    [data-testid="stSidebar"] .css-17lntkn { /* Streamlit specific classes */
         color: white;
     }
 </style>
@@ -154,6 +165,7 @@ def main():
     pos_rupture = df_filtered[df_filtered['Jours de Stock'] < 0.5].shape[0]
     global_days = (total_balance / total_oos) if total_oos > 0 else 0
 
+    # Streamlit columns stack on mobile automatically
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1: metric_card("Stock Actuel", f"{total_balance/1_000_000:.1f}M", "FCFA")
     with col2: metric_card("Objectif Stock", f"{total_oos/1_000_000:.1f}M", "FCFA")
@@ -164,6 +176,7 @@ def main():
     # --- Charts with Container Style ---
     
     # Row 1: TreeMap & Pie
+    # On mobile, we might want these full width. Streamlit columns adapt well.
     c1, c2 = st.columns([2, 1])
     
     # Prepare Data
@@ -185,8 +198,6 @@ def main():
         if not df_recharge.empty:
             # Hierarchy: Site -> Routes -> Sous-Zone -> Noms
             path_hierarchy = [px.Constant("Parc"), 'Site', 'Routes', 'Sous-Zone', 'Noms']
-            # Clean path columns to avoid plotly errors if all values are same
-            # But let's keep it simple
             
             fig_tree = px.treemap(
                 df_recharge,
@@ -249,14 +260,16 @@ def main():
 
     # Row 3: Action Table
     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.subheader("📋 Actions Prioritaires")
+    st.subheader("📋 État Complet du Réseau") # Changed title slightly
     
     df_table = df_filtered.copy()
     def get_action(gap):
         return f"⚠️ RECHARGER {gap:,.0f}" if gap > 0 else "✅ OK"
     
     df_table['Action'] = df_table['Manque (Gap)'].apply(get_action)
-    df_table = df_table[df_table['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False)
+    
+    # Sort by Gap descending so urgent items are first, but keep ALL rows (including OK)
+    df_table = df_table.sort_values(by='Manque (Gap)', ascending=False)
     
     # Columns to display
     display_cols = ['Numero', 'Noms', 'Site', 'Routes', 'Sous-Zone', 'Balance', 'Montants OOS', 'Jours de Stock', 'Action']
