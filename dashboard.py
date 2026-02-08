@@ -6,8 +6,9 @@ import os
 
 # Configuration
 # Configuration
-DATA_FILE = r'c:\Users\user\Downloads\r2b\reconciliation.xlsx'
-LOGO_FILE = r'c:\Users\user\Downloads\r2b\logo.png'
+# Use relative paths for deployment
+DATA_FILE = 'reconciliation.xlsx'
+LOGO_FILE = 'logo.png'
 
 st.set_page_config(page_title="Cockpit MFS", layout="wide", page_icon="📶")
 
