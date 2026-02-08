@@ -162,17 +162,77 @@ def main():
     total_balance = df_filtered['Balance'].sum()
     total_oos = df_filtered['Montants OOS'].sum()
     sleeping_cash = df_filtered[df_filtered['Jours de Stock'] > 5.0]['Balance'].sum()
+    
+    # --- New Rupture Calculation for Interpretation --- 
+    total_pos = len(df_filtered)
     pos_rupture = df_filtered[df_filtered['Jours de Stock'] < 0.5].shape[0]
+    rupture_rate_val = (pos_rupture / total_pos * 100) if total_pos > 0 else 0
+    
     global_days = (total_balance / total_oos) if total_oos > 0 else 0
 
     # Streamlit columns stack on mobile automatically
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1: metric_card("Stock Actuel", f"{total_balance/1_000_000:.1f}M", "FCFA")
     with col2: metric_card("Objectif Stock", f"{total_oos/1_000_000:.1f}M", "FCFA")
-    with col3: metric_card("POS en Rupture", f"{pos_rupture}", "Points Critiques", color="#dc3545")
+    
+    # Rupture Rate Card (Replaces generic Points de Rupture for better KPI)
+    # Or keep Points and replace Days? User specifically asked for Rate.
+    # Let's replace 'POS en Rupture' to 'Taux Rupture' or keep POS and move Rate to replace 'Couverture'.
+    # User focused on Rate < 20%. Let's put Rate in Col3.
+    rate_color = "#dc3545" if rupture_rate_val > 20 else "#28a745" # Red if > 20%, Green otherwise
+    with col3: metric_card("Taux Rupture", f"{rupture_rate_val:.1f}%", "Cible: < 20%", color=rate_color)
+    
     with col4: metric_card("Cash Dormant", f"{sleeping_cash/1_000_000:.1f}M", "> 5 Jours", color="#ffc107") # Warning Color
     with col5: metric_card("Couverture Globale", f"{global_days:.1f}j", "Cible: 1.0j")
 
+    # --- Decision Support / Interpretation Banner ---
+    st.markdown("---")
+    if rupture_rate_val > 20:
+        st.error(f"⚠️ **ALERTE CRITIQUE : Le Taux de Rupture est de {rupture_rate_val:.1f}% (> 20%).** \n\n"
+                 f"Il est impératif de réapprovisionner les {pos_rupture} points de vente en rupture immédiatement pour éviter une perte de chiffre d'affaires.")
+    else:
+        st.success(f"✅ **PERFORMANCE : Le Taux de Rupture est maîtrisé à {rupture_rate_val:.1f}% (< 20%).** \n\n"
+                   "Maintenez le suivi pour rester sous l'objectif.")
+    st.markdown("---")
+    
+    # --- Cluster Focus (If 'Tous' is selected) ---
+    # Only show if we are viewing 'All' to avoid confusion if filtered
+    if selected_site == "Tous":
+        # Helper for mini-card
+        def quick_kpi(df_sub, name):
+            if df_sub.empty: return
+            sub_pos = len(df_sub)
+            sub_rupture = df_sub[df_sub['Jours de Stock'] < 0.5].shape[0]
+            sub_rate = (sub_rupture / sub_pos * 100) if sub_pos > 0 else 0
+            
+            sub_color = "red" if sub_rate > 20 else "green"
+            icon = "🔴" if sub_rate > 20 else "🟢"
+            
+            st.markdown(f"""
+            <div style="padding:15px; border-radius:8px; background-color:white; border-left: 5px solid {sub_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom:10px;">
+                <h4 style="margin:0; text-transform:uppercase; color: #555;">{icon} {name}</h4>
+                <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                     <div style="font-size:28px; font-weight:bold; color:{sub_color}">{sub_rate:.1f}%</div>
+                     <div style="color:#888; font-size:12px;">Objectif < 20%</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.subheader("🔍 Focus Clusters Clés")
+        cols = st.columns(2)
+        
+        # Filter for specific clusters (fuzzy matching to be safe)
+        c_sic = df[df['Site'].str.contains("Cite Sic", case=False, na=False)]
+        c_ndog = df[df['Site'].str.contains("Ndogbong", case=False, na=False)]
+        
+        with cols[0]: 
+            if not c_sic.empty: quick_kpi(c_sic, "Cité Sic")
+            else: st.info("Cluster 'Cité Sic' non trouvé.")
+            
+        with cols[1]: 
+            if not c_ndog.empty: quick_kpi(c_ndog, "Ndogbong")
+            else: st.info("Cluster 'Ndogbong' non trouvé.")
+            
     # --- Charts with Container Style ---
     
     # Row 1: TreeMap & Pie
