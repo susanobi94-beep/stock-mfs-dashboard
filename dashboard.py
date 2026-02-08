@@ -9,35 +9,36 @@ LOGO_FILE = 'logo.png'
 
 st.set_page_config(page_title="Cockpit MFS", layout="wide", page_icon="📶")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (Clean & Minimal) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
-    .metric-card {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        text-align: center;
-        margin-bottom: 20px;
-        height: 100%;
+    .header-style { 
+        font-size: 40px; 
+        font-weight: 900; 
+        color: #000000; 
+        text-align: center; 
+        padding-bottom: 20px; 
+        text-transform: uppercase; 
+        letter-spacing: 2px; 
     }
-    .metric-title { font-size: 14px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-value { font-size: 24px; font-weight: bold; color: #2c3e50; }
-    @media (min-width: 768px) { .metric-value { font-size: 32px; } }
-    .metric-delta { font-size: 14px; color: #28a745; }
-    .metric-delta.neg { color: #dc3545; }
-    .chart-container {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 20px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
+    .sub-header {
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 5px;
     }
-    .header-style { font-size: 40px; font-weight: 900; color: #000000; text-align: center; padding-bottom: 30px; text-transform: uppercase; letter-spacing: 2px; }
-    @media (min-width: 768px) { .header-style { font-size: 85px; } }
-    [data-testid="stSidebar"] { background-color: #000000; color: #ffffff; }
-    [data-testid="stSidebar"] .css-17lntkn { color: white; }
+    .interpretation-box {
+        background-color: #e9ecef;
+        padding: 15px;
+        border-radius: 5px;
+        margin-top: 10px;
+        border-left: 5px solid #0d6efd;
+        font-size: 14px;
+        color: #495057;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -70,16 +71,6 @@ def load_data():
         st.error(f"Erreur de chargement des données: {e}")
         return None
 
-def metric_card(title, value, delta=None, color="black"):
-    delta_html = f"<div class='metric-delta'>{delta}</div>" if delta else ""
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">{title}</div>
-        <div class="metric-value" style="color: {color}">{value}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
-
 def main():
     if os.path.exists(LOGO_FILE):
         st.sidebar.image(LOGO_FILE, use_column_width=True)
@@ -88,7 +79,7 @@ def main():
     
     df = load_data()
     if df is None:
-        st.error("Données non trouvées.")
+        st.error("Données non trouvées sur le serveur.")
         return
 
     # Filters
@@ -130,58 +121,22 @@ def main():
     
     global_days = (total_balance / total_oos) if total_oos > 0 else 0
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: metric_card("Stock Actuel", f"{total_balance/1_000_000:.1f}M", "FCFA")
-    with col2: metric_card("Objectif Stock", f"{total_oos/1_000_000:.1f}M", "FCFA")
-    
-    rate_color = "#dc3545" if rupture_rate_val > 20 else "#28a745"
-    with col3: metric_card("Taux Rupture", f"{rupture_rate_val:.1f}%", "Cible: < 20%", color=rate_color)
-    
-    with col4: metric_card("Cash Dormant", f"{sleeping_cash/1_000_000:.1f}M", "> 5 Jours", color="#ffc107")
-    with col5: metric_card("Couverture Globale", f"{global_days:.1f}j", "Cible: 1.0j")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Stock Actuel", f"{total_balance/1_000_000:.1f}M", "FCFA")
+    c2.metric("Objectif Stock", f"{total_oos/1_000_000:.1f}M", "FCFA")
+    c3.metric("Taux Rupture", f"{rupture_rate_val:.1f}%", f"{pos_rupture} POS")
+    c4.metric("Couverture", f"{global_days:.1f}j", "Cible: 1.0j")
 
     # --- Banner ---
     st.markdown("---")
     if rupture_rate_val > 20:
-        st.error(f"⚠️ **ALERTE CRITIQUE : Le Taux de Rupture est de {rupture_rate_val:.1f}% (> 20%).** \n\n"
-                 f"Il est impératif de réapprovisionner les {pos_rupture} points de vente en rupture immédiatement.")
+        st.error(f"⚠️ **ALERTE CRITIQUE : Le Taux est de {rupture_rate_val:.1f}% (> 20%).** Action requise immédiate.")
     else:
-        st.success(f"✅ **PERFORMANCE : Le Taux de Rupture est maîtrisé à {rupture_rate_val:.1f}% (< 20%).**")
+        st.success(f"✅ **PERFORMANCE : Taux maîtrisé à {rupture_rate_val:.1f}%.**")
     st.markdown("---")
-    
-    # --- Cluster Focus ---
-    if selected_site == "Tous":
-        def quick_kpi(df_sub, name):
-            if df_sub.empty: return
-            sub_pos = len(df_sub)
-            sub_rupture = df_sub[df_sub['Jours de Stock'] < 0.5].shape[0]
-            sub_rate = (sub_rupture / sub_pos * 100) if sub_pos > 0 else 0
-            sub_color = "red" if sub_rate > 20 else "green"
-            icon = "🔴" if sub_rate > 20 else "🟢"
-            st.markdown(f"""
-            <div style="padding:15px; border-radius:8px; background-color:white; border-left: 5px solid {sub_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom:10px;">
-                <h4 style="margin:0; text-transform:uppercase; color: #555;">{icon} {name}</h4>
-                <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-                     <div style="font-size:28px; font-weight:bold; color:{sub_color}">{sub_rate:.1f}%</div>
-                     <div style="color:#888; font-size:12px;">Objectif < 20%</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.subheader("🔍 Focus Clusters Clés")
-        cols = st.columns(2)
-        c_sic = df[df['Site'].str.contains("Cite Sic", case=False, na=False)]
-        c_ndog = df[df['Site'].str.contains("Ndogbong", case=False, na=False)]
-        with cols[0]: 
-            if not c_sic.empty: quick_kpi(c_sic, "Cité Sic")
-        with cols[1]: 
-            if not c_ndog.empty: quick_kpi(c_ndog, "Ndogbong")
 
-    # --- Charts with Altair (Replacing Plotly) ---
-    c1, c2 = st.columns([2, 1])
-    
+    # --- Data Prep for Charts ---
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
-    df_recharge = df_filtered[df_filtered['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False).head(20)
     
     def classify_pos(days):
         try:
@@ -198,54 +153,88 @@ def main():
     domain = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
     range_ = ["#d32f2f", "#f57c00", "#2e7d32", "#1976d2", "gray"]
 
-    with c1:
-        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-        st.subheader("📍 Où manque-t-il de l'argent ? (Top 20)")
-        if not df_recharge.empty:
-            chart_gap = alt.Chart(df_recharge).mark_bar().encode(
-                x=alt.X('Manque (Gap)', title='Montant à recharger'),
-                y=alt.Y('Noms', sort='-x', title='Agent / POS'),
-                color=alt.Color('Jours de Stock', scale=alt.Scale(scheme='redyellowgreen'), title='Jours Stock'),
-                tooltip=['Noms', 'Manque (Gap)', 'Jours de Stock', 'Site']
-            ).interactive()
-            st.altair_chart(chart_gap, use_container_width=True)
-        else:
-            st.success("Aucun manque de stock détecté.")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # --- Interpretation for Scatter ---
+    # Analyze the distribution relative to the diagonal (Balance = OOS)
+    under_target = df_filtered[df_filtered['Balance'] < df_filtered['Montants OOS']].shape[0]
+    over_target = total_pos - under_target
+    under_percent = (under_target / total_pos * 100) if total_pos > 0 else 0
+    
+    interpretation_text = ""
+    if under_percent > 60:
+        interpretation_text = f"🚨 **Tendance Claire : Sous-Stockage Massif.** <br> {under_percent:.1f}% des points de vente sont en dessous de leur objectif (la majorité des points sont sous la ligne pointillée). Il faut prioriser le rechargement global."
+    elif under_percent < 40:
+        interpretation_text = f"🔵 **Tendance Claire : Sur-Stockage.** <br> {100-under_percent:.1f}% des points ont plus de stock que prévu. Il peut y avoir du cash dormant à récupérer."
+    else:
+        interpretation_text = f"⚖️ **Situation Équilibrée.** <br> Le réseau est partagé entre sous-stockage ({under_percent:.1f}%) et sur-stockage ({100-under_percent:.1f}%). Ciblez les cas extrêmes."
 
-    with c2:
-        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-        st.subheader("📊 État du Parc")
+    # --- Charts with Altair ---
+    c1, c2 = st.columns([1, 1])
+
+    with c1:
+        st.markdown('<div class="sub-header">📊 État du Parc (Distribution)</div>', unsafe_allow_html=True)
         pie_data = df_filtered['Statut'].value_counts().reset_index()
         pie_data.columns = ['Statut', 'Compte']
+        pie_data['Pourcentage'] = (pie_data['Compte'] / pie_data['Compte'].sum()).map("{:.1%}".format)
         
-        chart_pie = alt.Chart(pie_data).mark_bar().encode(
-            x='Compte',
-            y=alt.Y('Statut', sort=domain),
+        # Interactive Bar Chart with Percentage labels
+        bars = alt.Chart(pie_data).mark_bar().encode(
+            x=alt.X('Compte', title='Nombre de PDV'),
+            y=alt.Y('Statut', sort=domain, title=None),
             color=alt.Color('Statut', scale=alt.Scale(domain=domain, range=range_), legend=None),
-            tooltip=['Statut', 'Compte']
-        ).properties(height=300)
+            tooltip=['Statut', 'Compte', 'Pourcentage']
+        )
         
-        st.altair_chart(chart_pie, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        text = bars.mark_text(
+            align='left',
+            baseline='middle',
+            dx=3  # Nudges text to right so it doesn't overlap bar
+        ).encode(
+            text='Pourcentage'
+        )
+        
+        final_chart = (bars + text).properties(height=300)
+        st.altair_chart(final_chart, use_container_width=True)
+        st.caption("Ce graphique montre la répartition des points de vente par niveau de santé stock.")
 
-    # Row 2: Scatter
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.subheader("📈 Précision du Stockage (Balance vs Cible)")
+    with c2:
+        st.markdown('<div class="sub-header">📍 Où manque-t-il de l\'argent ? (Top 15)</div>', unsafe_allow_html=True)
+        df_recharge = df_filtered[df_filtered['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False).head(15)
+        
+        if not df_recharge.empty:
+            chart_gap = alt.Chart(df_recharge).mark_bar().encode(
+                x=alt.X('Manque (Gap)', title='Montant à recharger (FCFA)'),
+                y=alt.Y('Noms', sort='-x', title=None),
+                color=alt.Color('Jours de Stock', scale=alt.Scale(scheme='redyellowgreen'), title='Jours Stock'),
+                tooltip=['Noms', 'Manque (Gap)', 'Jours de Stock', 'Site', 'Numero']
+            ).properties(height=300).interactive()
+            st.altair_chart(chart_gap, use_container_width=True)
+        else:
+            st.success("✅ Aucun manque significatif identifié.")
+        st.caption("Ces 15 points de vente représentent le plus gros besoin immédiat en cash.")
+
+    # Scatter Full Width
+    st.markdown('<div class="sub-header">📈 Précision du Stockage (Balance vs Cible)</div>', unsafe_allow_html=True)
     
+    # Text interpretation next to title or below
+    st.markdown(f'<div class="interpretation-box">{interpretation_text}</div>', unsafe_allow_html=True)
+    
+    # Scatter Chart
     chart_scatter = alt.Chart(df_filtered).mark_circle(size=60).encode(
         x=alt.X('Montants OOS', title='Objectif (OOS)'),
         y=alt.Y('Balance', title='Stock Actuel'),
-        color=alt.Color('Statut', scale=alt.Scale(domain=domain, range=range_)),
-        tooltip=['Noms', 'Numero', 'Balance', 'Montants OOS', 'Jours de Stock', 'Site']
-    ).interactive().properties(height=500)
+        color=alt.Color('Statut', scale=alt.Scale(domain=domain, range=range_), title='Statut'),
+        tooltip=['Noms', 'Numero', 'Balance', 'Montants OOS', 'Jours de Stock', 'Site', 'Routes']
+    ).properties(height=500).interactive()
     
-    st.altair_chart(chart_scatter, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Diagonal line
+    max_val = max(df_filtered['Montants OOS'].max(), df_filtered['Balance'].max())
+    line_data = pd.DataFrame({'x': [0, max_val], 'y': [0, max_val]})
+    line = alt.Chart(line_data).mark_line(color='gray', strokeDash=[5, 5]).encode(x='x', y='y')
+    
+    st.altair_chart(chart_scatter + line, use_container_width=True)
 
-    # Row 3: Action Table
-    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-    st.subheader("📋 État Complet du Réseau")
+    # --- Detailed Table ---
+    st.markdown('<div class="sub-header">📋 État Complet du Réseau</div>', unsafe_allow_html=True)
     
     df_table = df_filtered.copy()
     def get_action(gap):
@@ -258,7 +247,6 @@ def main():
     display_cols = [c for c in display_cols if c in df_table.columns]
 
     st.dataframe(df_table[display_cols], use_container_width=True, hide_index=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
