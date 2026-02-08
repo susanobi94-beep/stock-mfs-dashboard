@@ -211,7 +211,7 @@ def main():
                 values='Manque (Gap)',
                 color='Jours de Stock',
                 color_continuous_scale='RdYlGn',
-                range_color=[0, 3.0], # Adjusted range to map 0 (Red) to 3 (Green) more effectively
+                range_color=[0, 3.0], 
             )
             fig_tree.update_layout(height=450, margin=dict(t=20, l=10, r=10, b=10))
             st.plotly_chart(fig_tree, use_container_width=True)
@@ -240,12 +240,14 @@ def main():
     # Row 2: Scatter
     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
     st.subheader("📈 Précision du Stockage (Balance vs Cible)")
+    
+    # Use standard size to ensure visibility
     fig_scatter = px.scatter(
         df_filtered, 
         x='Montants OOS', 
         y='Balance', 
         color='Statut',
-        size='Balance', # Ensure Balance is numeric for size
+        # Removed size mapping to ensure visibility of points with low balance
         hover_name='Noms',
         hover_data=['Site', 'Routes', 'Sous-Zone', 'Numero', 'Jours de Stock'],
         color_discrete_map=colors_map,
@@ -254,6 +256,10 @@ def main():
     )
     max_val = max(df_filtered['Montants OOS'].max(), df_filtered['Balance'].max()) if not df_filtered.empty else 100
     fig_scatter.add_shape(type="line", line=dict(dash='dash', color='gray'), x0=0, y0=0, x1=max_val, y1=max_val)
+    
+    # Increase marker size explicitly
+    fig_scatter.update_traces(marker=dict(size=12))
+    
     fig_scatter.update_layout(
         height=500, template="plotly_white",
         xaxis_title="Besoin (OOS)", yaxis_title="Stock Actuel (Balance)",
