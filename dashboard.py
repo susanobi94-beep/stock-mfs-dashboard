@@ -333,8 +333,8 @@ def main():
              return f"🔴 Recharger {gap:,.0f} F"
         df_pareto['Action'] = df_pareto.apply(get_detailed_status, axis=1)
         
-        # Download Button Pareto
-        csv_pareto = df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5).to_csv(index=False).encode('utf-8')
+        # Download Button Pareto (UPDATED WITH ROUTES)
+        csv_pareto = df_pareto[['Numero', 'Noms', 'Site', 'Routes', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5).to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Télécharger la Liste Pareto (CSV)",
             data=csv_pareto,
@@ -342,7 +342,7 @@ def main():
             mime='text/csv',
         )
         
-        st.dataframe(df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5), use_container_width=True)
+        st.dataframe(df_pareto[['Numero', 'Noms', 'Site', 'Routes', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5), use_container_width=True)
     else:
         st.success("✅ Tout est en ordre. Pas de Pareto nécessaire.")
 
