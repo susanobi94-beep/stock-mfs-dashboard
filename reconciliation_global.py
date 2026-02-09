@@ -1,10 +1,12 @@
 import pandas as pd
 import os
+from datetime import datetime
 
 # Configuration
 SUMMARY_FILE = r'c:\Users\user\Downloads\r2b\summary.xlsx'
 OOS_FILE = r'c:\Users\user\Downloads\r2b\OOS1.xlsx'
 OUTPUT_FILE = r'c:\Users\user\Downloads\r2b\reconciliation.xlsx'
+HISTORY_FILE = r'c:\Users\user\Downloads\r2b\history.csv'
 
 def reconcile_data():
     print("Starting data reconciliation (Global Script)...")
@@ -118,7 +120,7 @@ def reconcile_data():
         df_final = df_merged[existing_cols]
         df_final = df_final.rename(columns=final_columns_map)
 
-        # Final check on types before saving
+        # Final check on types before saving (and for history stats)
         numeric_final_cols = ['Montants OOS', 'Balance', 'Valeur Calculee', 'Jours de Stock']
         for col in numeric_final_cols:
             if col in df_final.columns:
@@ -126,15 +128,51 @@ def reconcile_data():
         
         # Ensure "Numero" is specifically numeric (Int64)
         if 'Numero' in df_final.columns:
-            # Convert to numeric, errors become NaN, fill with 0, convert to int
             df_final['Numero'] = pd.to_numeric(df_final['Numero'], errors='coerce').fillna(0).astype('int64')
+
+        # --- HISTORICAL LOGGING ---
+        try:
+             today_str = datetime.now().strftime('%Y-%m-%d')
+             
+             # Calculate Aggregates
+             total_balance = df_final['Balance'].sum() if 'Balance' in df_final.columns else 0
+             total_oos = df_final['Montants OOS'].sum() if 'Montants OOS' in df_final.columns else 0
+             
+             total_pos = len(df_final)
+             pos_rupture = df_final[df_final['Jours de Stock'] < 0.5].shape[0] if 'Jours de Stock' in df_final.columns else 0
+             rupture_rate = (pos_rupture / total_pos * 100) if total_pos > 0 else 0
+             
+             new_row = {
+                 'Date': today_str,
+                 'Total_Balance': total_balance,
+                 'Total_OOS': total_oos,
+                 'Rupture_Rate': rupture_rate,
+                 'POS_Count': total_pos
+             }
+             
+             # Load or Create History
+             if os.path.exists(HISTORY_FILE):
+                 df_hist = pd.read_csv(HISTORY_FILE)
+             else:
+                 df_hist = pd.DataFrame(columns=['Date', 'Total_Balance', 'Total_OOS', 'Rupture_Rate', 'POS_Count'])
+             
+             # Remove existing entry for today if exists to avoid dupes on rerun
+             df_hist = df_hist[df_hist['Date'] != today_str]
+             
+             # Append new row
+             df_hist = pd.concat([df_hist, pd.DataFrame([new_row])], ignore_index=True)
+             
+             # Save
+             df_hist.to_csv(HISTORY_FILE, index=False)
+             print(f"History updated for {today_str}.")
+             
+        except Exception as h_err:
+             print(f"Warning: Could not update history log: {h_err}")
 
         # Save to Excel
         print(f"Saving to {OUTPUT_FILE}...")
         df_final.to_excel(OUTPUT_FILE, index=False)
         print("Reconciliation complete.")
-        print(f"Preview types:\n{df_final.dtypes}")
-        print(f"Preview head:\n{df_final.head()}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
