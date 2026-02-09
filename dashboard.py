@@ -211,10 +211,10 @@ def main():
         chart_routes = alt.Chart(route_stats).mark_bar().encode(
             x=alt.X('Taux Rupture', title='Taux de Rupture (%)'),
             y=alt.Y('Routes', sort='-x', title=None),
-            color=alt.condition(  # FIXED: lower case 'condition'
+            color=alt.condition(
                 alt.datum['Taux Rupture'] > 20,
-                alt.value('#dc3545'),  # Red if > 20%
-                alt.value('#198754')   # Green otherwise
+                alt.value('#dc3545'),
+                alt.value('#198754')
             ),
             tooltip=['Routes', 'Total POS', 'Ruptures', alt.Tooltip('Taux Rupture', format='.1f')]
         ).properties(height=max(300, len(route_stats) * 30))
@@ -234,7 +234,6 @@ def main():
     # --- Charts Data Prep ---
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
     
-    # Categorical Status for CHARTS (Keep Simple)
     def classify_chart(days):
         try:
             d = float(days)
@@ -333,6 +332,16 @@ def main():
              gap = float(row['Manque (Gap)'])
              return f"🔴 Recharger {gap:,.0f} F"
         df_pareto['Action'] = df_pareto.apply(get_detailed_status, axis=1)
+        
+        # Download Button Pareto
+        csv_pareto = df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5).to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Télécharger la Liste Pareto (CSV)",
+            data=csv_pareto,
+            file_name='pareto_priorities.csv',
+            mime='text/csv',
+        )
+        
         st.dataframe(df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5), use_container_width=True)
     else:
         st.success("✅ Tout est en ordre. Pas de Pareto nécessaire.")
@@ -349,6 +358,15 @@ def main():
         return "🔵 Surstock"
 
     df_filtered['Statut_Action'] = df_filtered.apply(get_global_status, axis=1)
+    
+    # Download Button Global
+    csv_global = df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Statut_Action']].to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Télécharger le Détail Complet (CSV)",
+        data=csv_global,
+        file_name='detail_reseau_global.csv',
+        mime='text/csv',
+    )
     
     st.dataframe(
         df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Statut_Action']], 
