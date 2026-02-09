@@ -145,39 +145,6 @@ def main():
     
     with kp4: display_kpi_card("⏳ Couverture", f"{global_days:.1f} J", "Cible: 1.0 Jour")
 
-    # --- HISTORY CHART (New) ---
-    st.markdown('<div class="sub-header">📅 Évolution Historique du Stock</div>', unsafe_allow_html=True)
-    df_hist = load_history()
-    
-    if df_hist is not None and not df_hist.empty:
-        # Date Filter
-        min_date = df_hist['Date'].min().date()
-        max_date = df_hist['Date'].max().date()
-        
-        c_date1, c_date2 = st.columns([1, 3])
-        with c_date1:
-             start_date = st.date_input("Date Début", min_date, min_value=min_date, max_value=max_date)
-             end_date = st.date_input("Date Fin", max_date, min_value=min_date, max_value=max_date)
-        
-        mask = (df_hist['Date'].dt.date >= start_date) & (df_hist['Date'].dt.date <= end_date)
-        df_hist_filtered = df_hist.loc[mask]
-        
-        # Dual Axis Chart: Balance (Line) + Rupture Rate (Area/Line)
-        base = alt.Chart(df_hist_filtered).encode(x=alt.X('Date', title='Date'))
-        
-        line_stock = base.mark_line(color='#0d6efd').encode(
-            y=alt.Y('Total_Balance', title='Stock Global (FCFA)'),
-            tooltip=['Date', 'Total_Balance', 'Rupture_Rate']
-        )
-        
-        line_rupture = base.mark_line(color='#dc3545', strokeDash=[5, 5]).encode(
-            y=alt.Y('Rupture_Rate', title='Taux Rupture (%)'),
-        )
-
-        st.altair_chart((line_stock + line_rupture).resolve_scale(y='independent'), use_container_width=True)
-    else:
-        st.info("Aucun historique disponible pour le moment (Le fichier history.csv se remplira chaque jour).")
-
     # --- CLUSTER FOCUS ---
     st.markdown('<div class="sub-header">🌍 Performance par Cluster</div>', unsafe_allow_html=True)
     
@@ -257,7 +224,7 @@ def main():
         st.altair_chart((bars + text).properties(height=300), use_container_width=True)
 
     with c2:
-        st.markdown('<div class="sub-header">📍 Top 10 Manques (Cash à Injecter)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">📍 Top 10 Manques (Float à Injecter)</div>', unsafe_allow_html=True)
         df_recharge = df_filtered[df_filtered['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False).head(10)
         
         if not df_recharge.empty:
@@ -308,6 +275,39 @@ def main():
         use_container_width=True, 
         hide_index=True
     )
+
+    # --- HISTORY CHART (Moved to Bottom) ---
+    st.markdown('<div class="sub-header">📅 Évolution Historique du Stock</div>', unsafe_allow_html=True)
+    df_hist = load_history()
+    
+    if df_hist is not None and not df_hist.empty:
+        # Date Filter
+        min_date = df_hist['Date'].min().date()
+        max_date = df_hist['Date'].max().date()
+        
+        c_date1, c_date2 = st.columns([1, 3])
+        with c_date1:
+             start_date = st.date_input("Date Début", min_date, min_value=min_date, max_value=max_date)
+             end_date = st.date_input("Date Fin", max_date, min_value=min_date, max_value=max_date)
+        
+        mask = (df_hist['Date'].dt.date >= start_date) & (df_hist['Date'].dt.date <= end_date)
+        df_hist_filtered = df_hist.loc[mask]
+        
+        # Dual Axis Chart: Balance (Line) + Rupture Rate (Area/Line)
+        base = alt.Chart(df_hist_filtered).encode(x=alt.X('Date', title='Date'))
+        
+        line_stock = base.mark_line(color='#0d6efd').encode(
+            y=alt.Y('Total_Balance', title='Stock Global (FCFA)'),
+            tooltip=['Date', 'Total_Balance', 'Rupture_Rate']
+        )
+        
+        line_rupture = base.mark_line(color='#dc3545', strokeDash=[5, 5]).encode(
+            y=alt.Y('Rupture_Rate', title='Taux Rupture (%)'),
+        )
+
+        st.altair_chart((line_stock + line_rupture).resolve_scale(y='independent'), use_container_width=True)
+    else:
+        st.info("Aucun historique disponible pour le moment (Le fichier history.csv se remplira chaque jour).")
 
 if __name__ == "__main__":
     main()
