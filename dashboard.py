@@ -122,6 +122,20 @@ def main():
     df_filtered = df.copy()
     if selected_site != "Tous":
         df_filtered = df[df['Site'] == selected_site]
+        
+    # Routes Filter (Always Visible)
+    available_routes = ["Tous"] + sorted(list(df_filtered['Routes'].unique()))
+    selected_route = st.sidebar.selectbox("Filtre Niveau 2 : Route Distribution", available_routes)
+    
+    if selected_route != "Tous":
+        df_filtered = df_filtered[df_filtered['Routes'] == selected_route]
+
+    # Sous-Zone Filter (Always Visible)
+    available_sz = ["Tous"] + sorted(list(df_filtered['Sous-Zone'].unique()))
+    selected_sz = st.sidebar.selectbox("Filtre Niveau 3 : Sous-Zone / PDV", available_sz)
+    
+    if selected_sz != "Tous":
+        df_filtered = df_filtered[df_filtered['Sous-Zone'] == selected_sz]
 
     # --- Header ---
     st.markdown('<div class="header-style">PILOTAGE DU STOCK MFS</div>', unsafe_allow_html=True)
@@ -159,7 +173,6 @@ def main():
         return rate, count, rupt
 
     c_sic_stats = get_cluster_stats("Cite Sic")
-    c_ndog_stats = get_cluster_stats("Ndogbong")
     
     cl1, cl2 = st.columns(2)
     
@@ -171,7 +184,7 @@ def main():
             <div class="cluster-card" style="border-left-color: {color_bar};">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
-                        <h3 style="margin:0; color:#333;">🏙️ CITE SIC</h3>
+                        <h3 style="margin:0; color:#333;">🌐 CITE SIC</h3>
                         <div style="font-size:12px; color:#777;">{rupt} ruptures sur {count} POS</div>
                     </div>
                     <div style="text-align:right;">
@@ -185,6 +198,9 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
+    # Calculate Ndogbong (Re-using function to avoid issues if needed, but simple is ok)
+    c_ndog_stats = get_cluster_stats("Ndogbong")
+
     if c_ndog_stats:
         rate, count, rupt = c_ndog_stats
         color_bar = "red" if rate > 20 else "green"
@@ -193,7 +209,7 @@ def main():
             <div class="cluster-card" style="border-left-color: {color_bar};">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div>
-                        <h3 style="margin:0; color:#333;">🏙️ NDOGBONG</h3>
+                        <h3 style="margin:0; color:#333;">🌐 NDOGBONG</h3>
                         <div style="font-size:12px; color:#777;">{rupt} ruptures sur {count} POS</div>
                     </div>
                     <div style="text-align:right;">
