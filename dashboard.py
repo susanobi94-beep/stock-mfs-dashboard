@@ -55,6 +55,13 @@ st.markdown("""
         border-bottom: 2px solid #e9ecef;
         padding-bottom: 5px;
     }
+    .pareto-box {
+        background-color: #e8f4fd;
+        border-left: 5px solid #0d6efd;
+        padding: 15px;
+        margin-top: 10px;
+        border-radius: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -205,7 +212,7 @@ def main():
     domain = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
     range_ = ["#d32f2f", "#f57c00", "#2e7d32", "#1976d2", "gray"]
 
-    # --- CHARTS ---
+    # --- CHARTS ROW 1 ---
     c1, c2 = st.columns([1, 1])
 
     with c1:
@@ -254,21 +261,76 @@ def main():
     line = alt.Chart(pd.DataFrame({'x':[0, df_filtered['Montants OOS'].max()], 'y':[0, df_filtered['Montants OOS'].max()]})).mark_line(strokeDash=[5,5], color='gray').encode(x='x', y='y')
     st.altair_chart(chart + line, use_container_width=True)
 
-    # --- TABLE DETAIL (Enhanced Status) ---
-    st.markdown('<div class="sub-header">📋 Détail Réseau</div>', unsafe_allow_html=True)
+    # --- PARETO ANALYSIS (New) ---
+    st.markdown('<div class="sub-header">📉 Analyse Pareto (Loi 80/20) - Priorités de Rechargement</div>', unsafe_allow_html=True)
     
-    def get_detailed_status(row):
+    # Pareto Data Prep
+    df_pareto = df_filtered[df_filtered['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False).copy()
+    
+    if not df_pareto.empty:
+        total_gap = df_pareto['Manque (Gap)'].sum()
+        df_pareto['Cum_Gap'] = df_pareto['Manque (Gap)'].cumsum()
+        df_pareto['Cum_Percent'] = (df_pareto['Cum_Gap'] / total_gap * 100)
+        
+        # Determine 80% Cutoff
+        pareto_cutoff = df_pareto[df_pareto['Cum_Percent'] <= 80]
+        vital_few_count = len(pareto_cutoff)
+        vital_few_amount = pareto_cutoff['Manque (Gap)'].sum()
+        
+        st.markdown(f"""
+        <div class="pareto-box">
+            <h4>💡 Insight Décisionnel</h4>
+            En rechargeant seulement <b>{vital_few_count} Points de Vente</b> (sur {len(df_pareto)} en manque), 
+            vous résolvez <b>80%</b> du problème de liquidité (soit {vital_few_amount:,.0f} FCFA).
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Combo Chart (Layered)
+        base = alt.Chart(df_pareto.head(50)).encode(
+            x=alt.X('Noms', sort=None, title='POS (Triés par Manque décroissant)')
+        )
+        
+        bar = base.mark_bar(color='#0d6efd').encode(
+            y=alt.Y('Manque (Gap)', title='Manque Float (FCFA)')
+        )
+        
+        line = base.mark_line(color='#dc3545', strokeWidth=3).encode(
+            y=alt.Y('Cum_Percent', title='% Cumulé du Manque Total', scale=alt.Scale(domain=[0, 100])),
+            tooltip=['Noms', 'Manque (Gap)', 'Cum_Percent']
+        )
+        
+        threshold = alt.Chart(pd.DataFrame({'y': [80]})).mark_rule(color='green', strokeDash=[5,5]).encode(y='y')
+        
+        st.altair_chart((bar + line + threshold).resolve_scale(y='independent'), use_container_width=True)
+
+        # Pareto Table (Vital Few only)
+        st.markdown('**📋 Liste des Priorités Absolues ("Vital Few" - Top 80%)**')
+        
+        def get_detailed_status(row):
+             gap = float(row['Manque (Gap)'])
+             return f"🔴 Recharger {gap:,.0f} F"
+
+        df_pareto['Action'] = df_pareto.apply(get_detailed_status, axis=1)
+        
+        st.dataframe(
+            df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5),
+            use_container_width=True
+        )
+    else:
+        st.success("✅ Tout est en ordre. Pas de Pareto nécessaire.")
+
+    # --- TABLE DETAIL (Enhanced Status) ---
+    st.markdown('<div class="sub-header">📋 Détail Réseau Global</div>', unsafe_allow_html=True)
+    
+    def get_global_status(row):
         d = float(row['Jours de Stock'])
         gap = float(row['Manque (Gap)'])
-        
-        if gap > 0:
-            return f"🔴 Recharger {gap:,.0f} F"
-        
+        if gap > 0: return f"🔴 Recharger {gap:,.0f} F"
         if d < 1.0: return "🟠 Tension"
         if d <= 3.0: return "🟢 Confort"
         return "🔵 Surstock"
 
-    df_filtered['Statut_Action'] = df_filtered.apply(get_detailed_status, axis=1)
+    df_filtered['Statut_Action'] = df_filtered.apply(get_global_status, axis=1)
     
     st.dataframe(
         df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Statut_Action']], 
@@ -276,7 +338,7 @@ def main():
         hide_index=True
     )
 
-    # --- HISTORY CHART (Moved to Bottom) ---
+    # --- HISTORY CHART (Bottom) ---
     st.markdown('<div class="sub-header">📅 Évolution Historique du Stock</div>', unsafe_allow_html=True)
     df_hist = load_history()
     
@@ -293,7 +355,6 @@ def main():
         mask = (df_hist['Date'].dt.date >= start_date) & (df_hist['Date'].dt.date <= end_date)
         df_hist_filtered = df_hist.loc[mask]
         
-        # Dual Axis Chart: Balance (Line) + Rupture Rate (Area/Line)
         base = alt.Chart(df_hist_filtered).encode(x=alt.X('Date', title='Date'))
         
         line_stock = base.mark_line(color='#0d6efd').encode(
@@ -307,7 +368,7 @@ def main():
 
         st.altair_chart((line_stock + line_rupture).resolve_scale(y='independent'), use_container_width=True)
     else:
-        st.info("Aucun historique disponible pour le moment (Le fichier history.csv se remplira chaque jour).")
+        st.info("Aucun historique disponible.")
 
 if __name__ == "__main__":
     main()
