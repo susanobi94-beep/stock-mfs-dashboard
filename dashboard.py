@@ -194,10 +194,9 @@ def main():
     with cl2:
         if c_ndog_stats: render_cluster_card("NDOGBONG", c_ndog_stats)
 
-    # --- ROUTE PERFORMANCE (New) ---
+    # --- ROUTE PERFORMANCE ---
     st.markdown('<div class="sub-header">🛣️ Taux de Rupture par Routes</div>', unsafe_allow_html=True)
     
-    # Calculate aggregation by Route
     route_stats = df_filtered.groupby('Routes').apply(
         lambda x: pd.Series({
             'Total POS': len(x),
@@ -212,13 +211,13 @@ def main():
         chart_routes = alt.Chart(route_stats).mark_bar().encode(
             x=alt.X('Taux Rupture', title='Taux de Rupture (%)'),
             y=alt.Y('Routes', sort='-x', title=None),
-            color=alt.Condition(
+            color=alt.condition(  # FIXED: lower case 'condition'
                 alt.datum['Taux Rupture'] > 20,
                 alt.value('#dc3545'),  # Red if > 20%
                 alt.value('#198754')   # Green otherwise
             ),
             tooltip=['Routes', 'Total POS', 'Ruptures', alt.Tooltip('Taux Rupture', format='.1f')]
-        ).properties(height=max(300, len(route_stats) * 30)) # Dynamic height
+        ).properties(height=max(300, len(route_stats) * 30))
         
         text_routes = chart_routes.mark_text(
             align='left',
