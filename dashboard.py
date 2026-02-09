@@ -2,25 +2,19 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import os
+from datetime import datetime, timedelta
 
 # Configuration
 DATA_FILE = 'reconciliation.xlsx'
+HISTORY_FILE = 'history.csv'
 LOGO_FILE = 'logo.png'
 
 st.set_page_config(page_title="Cockpit MFS", layout="wide", page_icon="📶")
 
-# --- CUSTOM CSS FOR UI ENHANCEMENT ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     .stApp { background-color: #f0f2f6; }
-    
-    /* KPI Cards Styling */
-    .kpi-container {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 20px;
-    }
     .kpi-card {
         background-color: white;
         padding: 20px;
@@ -34,8 +28,6 @@ st.markdown("""
     .kpi-title { font-size: 14px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .kpi-value { font-size: 28px; font-weight: 800; color: #212529; }
     .kpi-sub { font-size: 12px; color: #adb5bd; margin-top: 5px; }
-    
-    /* Cluster Cards */
     .cluster-card {
         background-color: white;
         padding: 15px;
@@ -44,8 +36,6 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         margin-bottom: 10px;
     }
-    
-    /* Headers */
     .header-style { 
         font-size: 32px; 
         font-weight: 800; 
@@ -73,28 +63,28 @@ def load_data():
         return None
     try:
         df = pd.read_excel(DATA_FILE)
-        
-        # Numeric Coercion
+        # Coercion
         for col in ['Balance', 'Montants OOS', 'Jours de Stock', 'Valeur Calculee']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            else:
-                df[col] = 0.0
-
-        # Text Coercion
         for col in ['Site', 'Routes', 'Sous-Zone', 'Noms']:
              if col in df.columns:
                  df[col] = df[col].astype(str).replace('nan', 'Inconnu')
-             else:
-                 df[col] = 'Inconnu'
-        
-        # Numero
         if 'Numero' in df.columns:
             df['Numero'] = pd.to_numeric(df['Numero'], errors='coerce').fillna(0).astype('int64')
-
         return df
     except Exception as e:
-        st.error(f"Erreur de chargement: {e}")
+        st.error(f"Erreur chargement: {e}")
+        return None
+
+def load_history():
+    if not os.path.exists(HISTORY_FILE):
+        return None
+    try:
+        df_hist = pd.read_csv(HISTORY_FILE)
+        df_hist['Date'] = pd.to_datetime(df_hist['Date'])
+        return df_hist
+    except:
         return None
 
 def display_kpi_card(title, value, sub="", color="#212529"):
@@ -123,14 +113,12 @@ def main():
     if selected_site != "Tous":
         df_filtered = df[df['Site'] == selected_site]
         
-    # Routes Filter (Always Visible)
     available_routes = ["Tous"] + sorted(list(df_filtered['Routes'].unique()))
     selected_route = st.sidebar.selectbox("Filtre Niveau 2 : Route Distribution", available_routes)
     
     if selected_route != "Tous":
         df_filtered = df_filtered[df_filtered['Routes'] == selected_route]
 
-    # Sous-Zone Filter (Always Visible)
     available_sz = ["Tous"] + sorted(list(df_filtered['Sous-Zone'].unique()))
     selected_sz = st.sidebar.selectbox("Filtre Niveau 3 : Sous-Zone / PDV", available_sz)
     
@@ -140,16 +128,13 @@ def main():
     # --- Header ---
     st.markdown('<div class="header-style">PILOTAGE DU STOCK MFS</div>', unsafe_allow_html=True)
 
-    # --- MAIN KPIs (Redesigned) ---
+    # --- KPIs ---
     total_balance = df_filtered['Balance'].sum()
     total_oos = df_filtered['Montants OOS'].sum()
     total_pos = len(df_filtered)
-    
     pos_rupture = df_filtered[df_filtered['Jours de Stock'] < 0.5].shape[0]
     rupture_rate_val = (pos_rupture / total_pos * 100) if total_pos > 0 else 0
-    
     global_days = (total_balance / total_oos) if total_oos > 0 else 0
-    sleeping_cash = df_filtered[df_filtered['Jours de Stock'] > 5.0]['Balance'].sum()
 
     kp1, kp2, kp3, kp4 = st.columns(4)
     with kp1: display_kpi_card("💵 Stock Actuel", f"{total_balance/1_000_000:.1f} M", "FCFA Disponible")
@@ -160,10 +145,42 @@ def main():
     
     with kp4: display_kpi_card("⏳ Couverture", f"{global_days:.1f} J", "Cible: 1.0 Jour")
 
-    # --- CLUSTER FOCUS (New Request) ---
-    st.markdown('<div class="sub-header">🌍 Performance par Cluster (Focus Taux de Rupture)</div>', unsafe_allow_html=True)
+    # --- HISTORY CHART (New) ---
+    st.markdown('<div class="sub-header">📅 Évolution Historique du Stock</div>', unsafe_allow_html=True)
+    df_hist = load_history()
     
-    # Calculate for Cité Sic and Ndogbong explicitly
+    if df_hist is not None and not df_hist.empty:
+        # Date Filter
+        min_date = df_hist['Date'].min().date()
+        max_date = df_hist['Date'].max().date()
+        
+        c_date1, c_date2 = st.columns([1, 3])
+        with c_date1:
+             start_date = st.date_input("Date Début", min_date, min_value=min_date, max_value=max_date)
+             end_date = st.date_input("Date Fin", max_date, min_value=min_date, max_value=max_date)
+        
+        mask = (df_hist['Date'].dt.date >= start_date) & (df_hist['Date'].dt.date <= end_date)
+        df_hist_filtered = df_hist.loc[mask]
+        
+        # Dual Axis Chart: Balance (Line) + Rupture Rate (Area/Line)
+        base = alt.Chart(df_hist_filtered).encode(x=alt.X('Date', title='Date'))
+        
+        line_stock = base.mark_line(color='#0d6efd').encode(
+            y=alt.Y('Total_Balance', title='Stock Global (FCFA)'),
+            tooltip=['Date', 'Total_Balance', 'Rupture_Rate']
+        )
+        
+        line_rupture = base.mark_line(color='#dc3545', strokeDash=[5, 5]).encode(
+            y=alt.Y('Rupture_Rate', title='Taux Rupture (%)'),
+        )
+
+        st.altair_chart((line_stock + line_rupture).resolve_scale(y='independent'), use_container_width=True)
+    else:
+        st.info("Aucun historique disponible pour le moment (Le fichier history.csv se remplira chaque jour).")
+
+    # --- CLUSTER FOCUS ---
+    st.markdown('<div class="sub-header">🌍 Performance par Cluster</div>', unsafe_allow_html=True)
+    
     def get_cluster_stats(cluster_name):
         subset = df[df['Site'].astype(str).str.contains(cluster_name, case=False, na=False)]
         if subset.empty: return None
@@ -173,60 +190,41 @@ def main():
         return rate, count, rupt
 
     c_sic_stats = get_cluster_stats("Cite Sic")
+    c_ndog_stats = get_cluster_stats("Ndogbong")
     
     cl1, cl2 = st.columns(2)
     
-    if c_sic_stats:
-        rate, count, rupt = c_sic_stats
+    def render_cluster_card(name, stats):
+        rate, count, rupt = stats
         color_bar = "red" if rate > 20 else "green"
-        with cl1:
-            st.markdown(f"""
-            <div class="cluster-card" style="border-left-color: {color_bar};">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <h3 style="margin:0; color:#333;">🌐 CITE SIC</h3>
-                        <div style="font-size:12px; color:#777;">{rupt} ruptures sur {count} POS</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <span style="font-size:32px; font-weight:bold; color:{color_bar}">{rate:.1f}%</span>
-                        <div style="font-size:10px; text-transform:uppercase;">Taux Rupture</div>
-                    </div>
+        st.markdown(f"""
+        <div class="cluster-card" style="border-left-color: {color_bar};">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <h3 style="margin:0; color:#333;">🌐 {name}</h3>
+                    <div style="font-size:12px; color:#777;">{rupt} ruptures sur {count} POS</div>
                 </div>
-                <div style="background:#eee; height:8px; width:100%; margin-top:10px; border-radius:4px;">
-                    <div style="background:{color_bar}; height:8px; width:{min(rate, 100)}%; border-radius:4px;"></div>
+                <div style="text-align:right;">
+                    <span style="font-size:32px; font-weight:bold; color:{color_bar}">{rate:.1f}%</span>
+                    <div style="font-size:10px; text-transform:uppercase;">Taux Rupture</div>
                 </div>
             </div>
-            """, unsafe_allow_html=True)
-            
-    # Calculate Ndogbong (Re-using function to avoid issues if needed, but simple is ok)
-    c_ndog_stats = get_cluster_stats("Ndogbong")
+            <div style="background:#eee; height:8px; width:100%; margin-top:10px; border-radius:4px;">
+                <div style="background:{color_bar}; height:8px; width:{min(rate, 100)}%; border-radius:4px;"></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    if c_ndog_stats:
-        rate, count, rupt = c_ndog_stats
-        color_bar = "red" if rate > 20 else "green"
-        with cl2:
-            st.markdown(f"""
-            <div class="cluster-card" style="border-left-color: {color_bar};">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <h3 style="margin:0; color:#333;">🌐 NDOGBONG</h3>
-                        <div style="font-size:12px; color:#777;">{rupt} ruptures sur {count} POS</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <span style="font-size:32px; font-weight:bold; color:{color_bar}">{rate:.1f}%</span>
-                        <div style="font-size:10px; text-transform:uppercase;">Taux Rupture</div>
-                    </div>
-                </div>
-                <div style="background:#eee; height:8px; width:100%; margin-top:10px; border-radius:4px;">
-                    <div style="background:{color_bar}; height:8px; width:{min(rate, 100)}%; border-radius:4px;"></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    with cl1:
+        if c_sic_stats: render_cluster_card("CITE SIC", c_sic_stats)
+    with cl2:
+        if c_ndog_stats: render_cluster_card("NDOGBONG", c_ndog_stats)
 
     # --- Charts Data Prep ---
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
     
-    def classify_pos(days):
+    # Categorical Status for CHARTS (Keep Simple)
+    def classify_chart(days):
         try:
             d = float(days)
             if d < 0.5: return "Rupture"
@@ -236,15 +234,15 @@ def main():
         except:
             return "Erreur"
             
-    df_filtered['Statut'] = df_filtered['Jours de Stock'].apply(classify_pos)
+    df_filtered['Statut'] = df_filtered['Jours de Stock'].apply(classify_chart)
     domain = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
     range_ = ["#d32f2f", "#f57c00", "#2e7d32", "#1976d2", "gray"]
 
-    # --- CHARTS SECTION ---
+    # --- CHARTS ---
     c1, c2 = st.columns([1, 1])
 
     with c1:
-        st.markdown('<div class="sub-header">📊 Distribution État du Parc</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">📊 Distribution du Parc</div>', unsafe_allow_html=True)
         pie_data = df_filtered['Statut'].value_counts().reset_index()
         pie_data.columns = ['Statut', 'Compte']
         pie_data['Pourcentage'] = (pie_data['Compte'] / pie_data['Compte'].sum()).map("{:.1%}".format)
@@ -273,13 +271,11 @@ def main():
         else:
             st.info("Aucun manque critique.")
 
-    # Scatter
     st.markdown('<div class="sub-header">📈 Précision Stockage</div>', unsafe_allow_html=True)
     
     under = df_filtered[df_filtered['Balance'] < df_filtered['Montants OOS']].shape[0]
     u_pct = (under / total_pos * 100) if total_pos > 0 else 0
-    
-    interp = f"🔴 **Attention : {u_pct:.1f}% du parc est sous-stocké.**" if u_pct > 50 else f"🟢 **Bonne nouvelle : Seules {u_pct:.1f}% des POS sont sous-stockés.**"
+    interp = f"🔴 **Attention : {u_pct:.1f}% du parc est sous-stocké.**" if u_pct > 50 else f"🟢 **Seules {u_pct:.1f}% des POS sont sous-stockés.**"
     st.markdown(f"<div style='background:#fff; padding:10px; border-radius:5px; margin-bottom:10px;'>{interp}</div>", unsafe_allow_html=True)
 
     chart = alt.Chart(df_filtered).mark_circle(size=60).encode(
@@ -288,14 +284,30 @@ def main():
         color=alt.Color('Statut', scale=alt.Scale(domain=domain, range=range_)),
         tooltip=['Noms', 'Balance', 'Montants OOS', 'Site']
     ).properties(height=450).interactive()
-    
     line = alt.Chart(pd.DataFrame({'x':[0, df_filtered['Montants OOS'].max()], 'y':[0, df_filtered['Montants OOS'].max()]})).mark_line(strokeDash=[5,5], color='gray').encode(x='x', y='y')
-    
     st.altair_chart(chart + line, use_container_width=True)
 
-    # Table
+    # --- TABLE DETAIL (Enhanced Status) ---
     st.markdown('<div class="sub-header">📋 Détail Réseau</div>', unsafe_allow_html=True)
-    st.dataframe(df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Manque (Gap)','Jours de Stock','Statut']], use_container_width=True)
+    
+    def get_detailed_status(row):
+        d = float(row['Jours de Stock'])
+        gap = float(row['Manque (Gap)'])
+        
+        if gap > 0:
+            return f"🔴 Recharger {gap:,.0f} F"
+        
+        if d < 1.0: return "🟠 Tension"
+        if d <= 3.0: return "🟢 Confort"
+        return "🔵 Surstock"
+
+    df_filtered['Statut_Action'] = df_filtered.apply(get_detailed_status, axis=1)
+    
+    st.dataframe(
+        df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Statut_Action']], 
+        use_container_width=True, 
+        hide_index=True
+    )
 
 if __name__ == "__main__":
     main()
