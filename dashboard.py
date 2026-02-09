@@ -194,6 +194,44 @@ def main():
     with cl2:
         if c_ndog_stats: render_cluster_card("NDOGBONG", c_ndog_stats)
 
+    # --- ROUTE PERFORMANCE (New) ---
+    st.markdown('<div class="sub-header">🛣️ Taux de Rupture par Routes</div>', unsafe_allow_html=True)
+    
+    # Calculate aggregation by Route
+    route_stats = df_filtered.groupby('Routes').apply(
+        lambda x: pd.Series({
+            'Total POS': len(x),
+            'Ruptures': x[x['Jours de Stock'] < 0.5].shape[0]
+        })
+    ).reset_index()
+    
+    route_stats['Taux Rupture'] = (route_stats['Ruptures'] / route_stats['Total POS'] * 100).fillna(0)
+    route_stats = route_stats.sort_values(by='Taux Rupture', ascending=False)
+    
+    if not route_stats.empty:
+        chart_routes = alt.Chart(route_stats).mark_bar().encode(
+            x=alt.X('Taux Rupture', title='Taux de Rupture (%)'),
+            y=alt.Y('Routes', sort='-x', title=None),
+            color=alt.Condition(
+                alt.datum['Taux Rupture'] > 20,
+                alt.value('#dc3545'),  # Red if > 20%
+                alt.value('#198754')   # Green otherwise
+            ),
+            tooltip=['Routes', 'Total POS', 'Ruptures', alt.Tooltip('Taux Rupture', format='.1f')]
+        ).properties(height=max(300, len(route_stats) * 30)) # Dynamic height
+        
+        text_routes = chart_routes.mark_text(
+            align='left',
+            baseline='middle',
+            dx=3
+        ).encode(
+            text=alt.Text('Taux Rupture', format='.1f')
+        )
+        
+        st.altair_chart(chart_routes + text_routes, use_container_width=True)
+    else:
+        st.info("Pas de données de routes disponibles.")
+
     # --- Charts Data Prep ---
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
     
@@ -261,10 +299,9 @@ def main():
     line = alt.Chart(pd.DataFrame({'x':[0, df_filtered['Montants OOS'].max()], 'y':[0, df_filtered['Montants OOS'].max()]})).mark_line(strokeDash=[5,5], color='gray').encode(x='x', y='y')
     st.altair_chart(chart + line, use_container_width=True)
 
-    # --- PARETO ANALYSIS (New) ---
+    # --- PARETO ANALYSIS ---
     st.markdown('<div class="sub-header">📉 Analyse Pareto (Loi 80/20) - Priorités de Rechargement</div>', unsafe_allow_html=True)
     
-    # Pareto Data Prep
     df_pareto = df_filtered[df_filtered['Manque (Gap)'] > 0].sort_values(by='Manque (Gap)', ascending=False).copy()
     
     if not df_pareto.empty:
@@ -272,7 +309,6 @@ def main():
         df_pareto['Cum_Gap'] = df_pareto['Manque (Gap)'].cumsum()
         df_pareto['Cum_Percent'] = (df_pareto['Cum_Gap'] / total_gap * 100)
         
-        # Determine 80% Cutoff
         pareto_cutoff = df_pareto[df_pareto['Cum_Percent'] <= 80]
         vital_few_count = len(pareto_cutoff)
         vital_few_amount = pareto_cutoff['Manque (Gap)'].sum()
@@ -285,41 +321,24 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # Combo Chart (Layered)
-        base = alt.Chart(df_pareto.head(50)).encode(
-            x=alt.X('Noms', sort=None, title='POS (Triés par Manque décroissant)')
-        )
-        
-        bar = base.mark_bar(color='#0d6efd').encode(
-            y=alt.Y('Manque (Gap)', title='Manque Float (FCFA)')
-        )
-        
+        base = alt.Chart(df_pareto.head(50)).encode(x=alt.X('Noms', sort=None, title='POS'))
+        bar = base.mark_bar(color='#0d6efd').encode(y=alt.Y('Manque (Gap)', title='Manque Float'))
         line = base.mark_line(color='#dc3545', strokeWidth=3).encode(
-            y=alt.Y('Cum_Percent', title='% Cumulé du Manque Total', scale=alt.Scale(domain=[0, 100])),
-            tooltip=['Noms', 'Manque (Gap)', 'Cum_Percent']
+            y=alt.Y('Cum_Percent', title='% Cumulé', scale=alt.Scale(domain=[0, 100]))
         )
-        
         threshold = alt.Chart(pd.DataFrame({'y': [80]})).mark_rule(color='green', strokeDash=[5,5]).encode(y='y')
-        
         st.altair_chart((bar + line + threshold).resolve_scale(y='independent'), use_container_width=True)
 
-        # Pareto Table (Vital Few only)
         st.markdown('**📋 Liste des Priorités Absolues ("Vital Few" - Top 80%)**')
-        
         def get_detailed_status(row):
              gap = float(row['Manque (Gap)'])
              return f"🔴 Recharger {gap:,.0f} F"
-
         df_pareto['Action'] = df_pareto.apply(get_detailed_status, axis=1)
-        
-        st.dataframe(
-            df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5),
-            use_container_width=True
-        )
+        st.dataframe(df_pareto[['Numero', 'Noms', 'Site', 'Manque (Gap)', 'Cum_Percent', 'Action']].head(vital_few_count + 5), use_container_width=True)
     else:
         st.success("✅ Tout est en ordre. Pas de Pareto nécessaire.")
 
-    # --- TABLE DETAIL (Enhanced Status) ---
+    # --- TABLE DETAIL ---
     st.markdown('<div class="sub-header">📋 Détail Réseau Global</div>', unsafe_allow_html=True)
     
     def get_global_status(row):
@@ -338,15 +357,13 @@ def main():
         hide_index=True
     )
 
-    # --- HISTORY CHART (Bottom) ---
+    # --- HISTORY CHART ---
     st.markdown('<div class="sub-header">📅 Évolution Historique du Stock</div>', unsafe_allow_html=True)
     df_hist = load_history()
     
     if df_hist is not None and not df_hist.empty:
-        # Date Filter
         min_date = df_hist['Date'].min().date()
         max_date = df_hist['Date'].max().date()
-        
         c_date1, c_date2 = st.columns([1, 3])
         with c_date1:
              start_date = st.date_input("Date Début", min_date, min_value=min_date, max_value=max_date)
@@ -356,15 +373,8 @@ def main():
         df_hist_filtered = df_hist.loc[mask]
         
         base = alt.Chart(df_hist_filtered).encode(x=alt.X('Date', title='Date'))
-        
-        line_stock = base.mark_line(color='#0d6efd').encode(
-            y=alt.Y('Total_Balance', title='Stock Global (FCFA)'),
-            tooltip=['Date', 'Total_Balance', 'Rupture_Rate']
-        )
-        
-        line_rupture = base.mark_line(color='#dc3545', strokeDash=[5, 5]).encode(
-            y=alt.Y('Rupture_Rate', title='Taux Rupture (%)'),
-        )
+        line_stock = base.mark_line(color='#0d6efd').encode(y=alt.Y('Total_Balance', title='Stock Global'))
+        line_rupture = base.mark_line(color='#dc3545', strokeDash=[5, 5]).encode(y=alt.Y('Rupture_Rate', title='Taux Rupture (%)'))
 
         st.altair_chart((line_stock + line_rupture).resolve_scale(y='independent'), use_container_width=True)
     else:
