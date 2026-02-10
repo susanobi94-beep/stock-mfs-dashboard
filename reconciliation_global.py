@@ -30,6 +30,10 @@ def reconcile_data():
             df_summary['Number'] = df_summary['Number'].astype(str).str.strip()
         
         # OOS1 specific column handling
+        # We need to preserve SITENAME as both 'Sous-Zone' (for filters) and 'Noms' (for display)
+        if 'SITENAME' in df_oos.columns:
+            df_oos['Noms'] = df_oos['SITENAME']
+        
         oos_rename_map = {
             'Agent MSISDN': 'AGENT_MSISDN',
             'Average of oos_target': 'Montants OOS',
@@ -61,7 +65,8 @@ def reconcile_data():
                  df_numeric = df_oos[['AGENT_MSISDN']].drop_duplicates()
 
             # 2. Categorical aggregation (First)
-            desired_cat_cols = ['Site', 'Sous-Zone', 'Routes', 'segment_group', 'TERRITORY CORRECT']
+            # Include 'Noms' in categorical columns to preserve it
+            desired_cat_cols = ['Site', 'Sous-Zone', 'Routes', 'segment_group', 'TERRITORY CORRECT', 'Noms']
             cat_cols = [c for c in desired_cat_cols if c in df_oos.columns]
             
             if cat_cols:
@@ -95,12 +100,16 @@ def reconcile_data():
 
         df_merged['Jours de Stock'] = df_merged.apply(clean_div, axis=1)
 
-        if 'nom et prenoms' not in df_merged.columns:
-             df_merged['nom et prenoms'] = df_merged['Number']
+        # Fallback if Noms is still missing (should cover summary merge if not in OOS)
+        if 'Noms' not in df_merged.columns:
+             if 'nom et prenoms' in df_merged.columns:
+                 df_merged['Noms'] = df_merged['nom et prenoms']
+             else:
+                 df_merged['Noms'] = df_merged['Number']
 
         final_columns_map = {
             'Number': 'Numero',
-            'nom et prenoms': 'Noms',
+            'Noms': 'Noms',
             'Routes': 'Routes',
             'Sous-Zone': 'Sous-Zone',
             'Montants OOS': 'Montants OOS',
