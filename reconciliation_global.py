@@ -30,22 +30,27 @@ def reconcile_data():
             df_summary['Number'] = df_summary['Number'].astype(str).str.strip()
         
         # OOS1 specific column handling
-        # We need to preserve SITENAME as both 'Sous-Zone' (for filters) and 'Noms' (for display)
-        if 'SITENAME' in df_oos.columns:
-            df_oos['Noms'] = df_oos['SITENAME']
-        
+        # Map OOS columns
         oos_rename_map = {
             'Agent MSISDN': 'AGENT_MSISDN',
             'Average of oos_target': 'Montants OOS',
             'ISL_Terr': 'Site',
-            'SITENAME': 'Sous-Zone'
+            'SITENAME': 'Sous-Zone' 
         }
         
         available_cols = df_oos.columns.tolist()
         rename_dict = {k: v for k, v in oos_rename_map.items() if k in available_cols}
-        
         df_oos = df_oos.rename(columns=rename_dict)
         
+        # Identify fallback name from OOS (SITENAME which is now Sous-Zone, or just SITENAME if copy)
+        # We want to preserve 'Sous-Zone' for hierarchy, but also use it as Name fallback
+        if 'Sous-Zone' in df_oos.columns:
+             df_oos['OOS_Name'] = df_oos['Sous-Zone']
+        elif 'SITENAME' in available_cols:
+             df_oos['OOS_Name'] = df_oos['SITENAME']
+        else:
+             df_oos['OOS_Name'] = None
+
         if 'AGENT_MSISDN' not in df_oos.columns:
             print("Error: 'Agent MSISDN' column not found in OOS file.")
             return
@@ -58,15 +63,14 @@ def reconcile_data():
             
             # 1. Numeric aggregation (Mean)
             if 'Montants OOS' in df_oos.columns:
-                 # Force numeric before groupby to avoid errors
                  df_oos['Montants OOS'] = pd.to_numeric(df_oos['Montants OOS'], errors='coerce').fillna(0.0)
                  df_numeric = df_oos[['AGENT_MSISDN', 'Montants OOS']].groupby('AGENT_MSISDN', as_index=False).mean()
             else:
                  df_numeric = df_oos[['AGENT_MSISDN']].drop_duplicates()
 
             # 2. Categorical aggregation (First)
-            # Include 'Noms' in categorical columns to preserve it
-            desired_cat_cols = ['Site', 'Sous-Zone', 'Routes', 'segment_group', 'TERRITORY CORRECT', 'Noms']
+            # Include temporary OOS_Name
+            desired_cat_cols = ['Site', 'Sous-Zone', 'Routes', 'segment_group', 'TERRITORY CORRECT', 'OOS_Name']
             cat_cols = [c for c in desired_cat_cols if c in df_oos.columns]
             
             if cat_cols:
@@ -79,11 +83,29 @@ def reconcile_data():
 
         # Merge Dataframes
         print("Merging data...")
+        # summary.xlsx has ['Date', 'Number', 'Name', 'Balance']
         df_merged = pd.merge(df_summary, df_oos, left_on='Number', right_on='AGENT_MSISDN', how='inner')
 
-        # Calculate Values with Explicit Type Conversion
-        print("Calculating metrics...")
+        # Logic for 'Noms'
+        # Priority 1: Name from Summary (Transaction file)
+        # Priority 2: OOS_Name (SITENAME from OOS)
+        # Priority 3: Number
         
+        def determine_name(row):
+            # Check Summary Name
+            s_name = str(row.get('Name', '')).strip()
+            if s_name and s_name.lower() not in ['nan', 'unknown', 'none', '']:
+                return s_name
+            
+            # Check OOS Name
+            o_name = str(row.get('OOS_Name', '')).strip()
+            if o_name and o_name.lower() not in ['nan', 'unknown', 'none', '']:
+                return o_name
+                
+            return str(row.get('Number', ''))
+
+        df_merged['Noms'] = df_merged.apply(determine_name, axis=1)
+
         # Force float type for numeric columns
         df_merged['Montants OOS'] = pd.to_numeric(df_merged.get('Montants OOS', 0), errors='coerce').fillna(0.0)
         df_merged['Balance'] = pd.to_numeric(df_merged.get('Balance', 0), errors='coerce').fillna(0.0)
@@ -99,13 +121,6 @@ def reconcile_data():
             return bal / oos
 
         df_merged['Jours de Stock'] = df_merged.apply(clean_div, axis=1)
-
-        # Fallback if Noms is still missing (should cover summary merge if not in OOS)
-        if 'Noms' not in df_merged.columns:
-             if 'nom et prenoms' in df_merged.columns:
-                 df_merged['Noms'] = df_merged['nom et prenoms']
-             else:
-                 df_merged['Noms'] = df_merged['Number']
 
         final_columns_map = {
             'Number': 'Numero',
@@ -129,24 +144,20 @@ def reconcile_data():
         df_final = df_merged[existing_cols]
         df_final = df_final.rename(columns=final_columns_map)
 
-        # Final check on types before saving (and for history stats)
+        # Final check on types
         numeric_final_cols = ['Montants OOS', 'Balance', 'Valeur Calculee', 'Jours de Stock']
         for col in numeric_final_cols:
             if col in df_final.columns:
                 df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
         
-        # Ensure "Numero" is specifically numeric (Int64)
         if 'Numero' in df_final.columns:
             df_final['Numero'] = pd.to_numeric(df_final['Numero'], errors='coerce').fillna(0).astype('int64')
 
         # --- HISTORICAL LOGGING ---
         try:
              today_str = datetime.now().strftime('%Y-%m-%d')
-             
-             # Calculate Aggregates
              total_balance = df_final['Balance'].sum() if 'Balance' in df_final.columns else 0
              total_oos = df_final['Montants OOS'].sum() if 'Montants OOS' in df_final.columns else 0
-             
              total_pos = len(df_final)
              pos_rupture = df_final[df_final['Jours de Stock'] < 0.5].shape[0] if 'Jours de Stock' in df_final.columns else 0
              rupture_rate = (pos_rupture / total_pos * 100) if total_pos > 0 else 0
@@ -159,19 +170,13 @@ def reconcile_data():
                  'POS_Count': total_pos
              }
              
-             # Load or Create History
              if os.path.exists(HISTORY_FILE):
                  df_hist = pd.read_csv(HISTORY_FILE)
              else:
                  df_hist = pd.DataFrame(columns=['Date', 'Total_Balance', 'Total_OOS', 'Rupture_Rate', 'POS_Count'])
              
-             # Remove existing entry for today if exists to avoid dupes on rerun
              df_hist = df_hist[df_hist['Date'] != today_str]
-             
-             # Append new row
              df_hist = pd.concat([df_hist, pd.DataFrame([new_row])], ignore_index=True)
-             
-             # Save
              df_hist.to_csv(HISTORY_FILE, index=False)
              print(f"History updated for {today_str}.")
              
