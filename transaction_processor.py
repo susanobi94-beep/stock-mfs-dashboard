@@ -12,7 +12,7 @@ OUTPUT_FILE = r'c:\Users\user\Downloads\r2b\summary.xlsx'
 
 def process_file(filepath):
     """
-    Process a single transaction file and extract date, number, and balance.
+    Process a single transaction file and extract date, number, name, and balance.
     """
     filename = os.path.basename(filepath)
     # Check if filename matches format
@@ -44,18 +44,33 @@ def process_file(filepath):
         date = first_row.get('Date')
         balance = first_row.get('Balance')
         
+        # Extract Name Logic
+        name = "Unknown"
+        # Check where the number appears to get the correct name
+        from_field = first_row.get('From', '')
+        to_field = first_row.get('To', '')
+        
+        if number in from_field:
+            name = first_row.get('From name', 'Unknown')
+        elif number in to_field:
+            name = first_row.get('To name', 'Unknown')
+        else:
+            # Fallback: sometimes format might differ, try generic match or just take From name
+            # But let's try to be safe. If neither, maybe it's just 'From Name' typically.
+            name = first_row.get('From name', 'Unknown')
+
         # If headers are different, might need adjustment
         if date is None or balance is None:
              print(f"Skipping {filename}: 'Date' or 'Balance' column missing. Headers found: {list(first_row.keys())}")
              return
 
-        write_to_summary(date, number, balance)
-        print(f"Processed {filename}: Date={date}, Number={number}, Balance={balance}")
+        write_to_summary(date, number, name, balance)
+        print(f"Processed {filename}: Date={date}, Number={number}, Name={name}, Balance={balance}")
 
     except Exception as e:
         print(f"Error processing {filename}: {e}")
 
-def write_to_summary(date, number, balance):
+def write_to_summary(date, number, name, balance):
     """
     Append the extracted data to the summary Excel file.
     Only write if entry doesn't already exist to prevent duplicates on rerun.
@@ -68,30 +83,17 @@ def write_to_summary(date, number, balance):
             wb = Workbook()
             ws = wb.active
             ws.title = "Summary"
-            ws.append(['Date', 'Number', 'Balance'])
+            ws.append(['Date', 'Number', 'Name', 'Balance'])
         
-        # Check for duplicates before appending? 
-        # For performance, maybe load all into set first?
-        # Given simpler requirement, just append. 
-        # IF user re-runs on same folder, it will duplicate. 
-        # Let's add basic dup check based on number?
-        
-        # Simple duplicate avoidance:
-        # scan existing rows
-        is_duplicate = False
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if str(row[1]) == str(number):
-                # Update existing? or Skip?
-                # User said "traite maintenant de tel sorte qu'il n'y a pas d'erreur"
-                # If we just append, summary grows infinitely.
-                # Ideally we upsert.
-                # Let's simple append for now but you might want to clear file first or use pandas.
-                # Assuming "Error" meant execution error, not logic.
-                pass
+        # Ensure header is correct if file existed but old format
+        if ws.cell(row=1, column=3).value != 'Name':
+             # If logic changes, might want to recreate. 
+             # For now, let's assume we are rebuilding if we run this.
+             if ws.max_row == 1: # Only header
+                 ws.cell(row=1, column=3).value = 'Name'
+                 ws.cell(row=1, column=4).value = 'Balance'
 
-        # Actually, using pandas is much robust and easier to handle dups.
-        # But sticking to openpyxl as requested previously.
-        ws.append([date, number, float(balance) if balance else 0])
+        ws.append([date, number, name, float(balance) if balance else 0])
         wb.save(OUTPUT_FILE)
             
     except Exception as e:
@@ -113,15 +115,13 @@ def main():
     # Process existing files first
     print("Processing existing files...")
     
-    # Clear output file to avoid duplicates on restart? 
-    # Or maybe user wants incremental? 
-    # Let's start fresh for "processed existing files" run to be clean.
+    # Always start fresh when running main processing to ensure consistency
     if os.path.exists(OUTPUT_FILE):
         try:
             os.remove(OUTPUT_FILE)
             print("Cleared existing summary file to rebuild from data folder.")
         except PermissionError:
-            print("Warning: Could not clear summary file. Appending new data.")
+            print("Warning: Could not clear summary file. Is it open? Appending instead.")
 
     if os.path.exists(INPUT_DIRECTORY):
         files = [f for f in os.listdir(INPUT_DIRECTORY) if f.startswith('Transactions_') and f.endswith('.csv')]
