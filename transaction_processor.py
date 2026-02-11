@@ -4,6 +4,7 @@ import time
 import re
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import pandas as pd
 from openpyxl import Workbook, load_workbook
 
 # Configuration
@@ -55,49 +56,70 @@ def process_file(filepath):
         elif number in to_field:
             name = first_row.get('To name', 'Unknown')
         else:
-            # Fallback: sometimes format might differ, try generic match or just take From name
-            # But let's try to be safe. If neither, maybe it's just 'From Name' typically.
             name = first_row.get('From name', 'Unknown')
 
-        # If headers are different, might need adjustment
         if date is None or balance is None:
-             print(f"Skipping {filename}: 'Date' or 'Balance' column missing. Headers found: {list(first_row.keys())}")
+             print(f"Skipping {filename}: 'Date' or 'Balance' column missing.")
              return
 
-        write_to_summary(date, number, name, balance)
-        print(f"Processed {filename}: Date={date}, Number={number}, Name={name}, Balance={balance}")
+        update_summary_upsert(date, number, name, balance)
+        print(f"Processed {filename}: Date={date}, Number={number}, Balance={balance}")
 
     except Exception as e:
         print(f"Error processing {filename}: {e}")
 
-def write_to_summary(date, number, name, balance):
+def update_summary_upsert(date, number, name, balance):
     """
-    Append the extracted data to the summary Excel file.
-    Only write if entry doesn't already exist to prevent duplicates on rerun.
+    Update the summary Excel file by UPSERT (Update if Number exists, Insert if not).
+    This allows continuous cycling without duplicate rows for the same Number.
     """
     try:
-        if os.path.isfile(OUTPUT_FILE):
-             wb = load_workbook(OUTPUT_FILE)
-             ws = wb.active
-        else:
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Summary"
-            ws.append(['Date', 'Number', 'Name', 'Balance'])
+        columns = ['Date', 'Number', 'Name', 'Balance']
         
-        # Ensure header is correct if file existed but old format
-        if ws.cell(row=1, column=3).value != 'Name':
-             # If logic changes, might want to recreate. 
-             # For now, let's assume we are rebuilding if we run this.
-             if ws.max_row == 1: # Only header
-                 ws.cell(row=1, column=3).value = 'Name'
-                 ws.cell(row=1, column=4).value = 'Balance'
-
-        ws.append([date, number, name, float(balance) if balance else 0])
-        wb.save(OUTPUT_FILE)
+        if os.path.isfile(OUTPUT_FILE):
+             try:
+                 df = pd.read_excel(OUTPUT_FILE)
+             except ValueError: # Empty file
+                 df = pd.DataFrame(columns=columns)
+        else:
+            df = pd.DataFrame(columns=columns)
+        
+        # Ensure Number is string for comparison
+        number = str(number).strip()
+        if 'Number' in df.columns:
+            df['Number'] = df['Number'].astype(str).str.strip()
+        
+        # Check if number exists
+        mask = df['Number'] == number
+        
+        new_row = {
+            'Date': date, 
+            'Number': number, 
+            'Name': name, 
+            'Balance': float(balance) if balance else 0
+        }
+        
+        if mask.any():
+            # Update existing row
+            # We use the index of the first match
+            idx = df[mask].index[0]
+            df.loc[idx, 'Date'] = date
+            df.loc[idx, 'Balance'] = float(balance) if balance else 0
+            # Update name only if it was unknown or strictly better? 
+            # Let's assume new file has correct name.
+            if name and name != "Unknown":
+                df.loc[idx, 'Name'] = name
+            # print(f"   -> Updated existing record for {number}")
+        else:
+            # Append new row
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+            # print(f"   -> Added new record for {number}")
+            
+        # Save back
+        df.to_excel(OUTPUT_FILE, index=False)
             
     except Exception as e:
-        print(f"Error writing to summary file: {e}")
+        print(f"Error updating summary file: {e}")
 
 class NewFileHandler(FileSystemEventHandler):
     def on_created(self, event):
@@ -109,20 +131,14 @@ def main():
     print(f"Monitoring directory: {INPUT_DIRECTORY}")
     print(f"Output file: {OUTPUT_FILE}")
     
-    # Ensure output directory exists
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
     # Process existing files first
     print("Processing existing files...")
+    # NOTE: In continuous mode, we do NOT clear the file at start of THIS script
+    # because auto_sync.py clears it at the very beginning of the session.
+    # But if this script is run standalone, it appends/updates.
     
-    # Always start fresh when running main processing to ensure consistency
-    if os.path.exists(OUTPUT_FILE):
-        try:
-            os.remove(OUTPUT_FILE)
-            print("Cleared existing summary file to rebuild from data folder.")
-        except PermissionError:
-            print("Warning: Could not clear summary file. Is it open? Appending instead.")
-
     if os.path.exists(INPUT_DIRECTORY):
         files = [f for f in os.listdir(INPUT_DIRECTORY) if f.startswith('Transactions_') and f.endswith('.csv')]
         print(f"Found {len(files)} transaction files.")
@@ -130,7 +146,6 @@ def main():
             filepath = os.path.join(INPUT_DIRECTORY, filename)
             process_file(filepath)
     else:
-        print(f"Error: Input directory {INPUT_DIRECTORY} does not exist. Creating it.")
         os.makedirs(INPUT_DIRECTORY, exist_ok=True)
 
     # Set up watchdog
@@ -146,7 +161,6 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
-    
     observer.join()
 
 if __name__ == "__main__":
