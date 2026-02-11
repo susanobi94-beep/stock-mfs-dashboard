@@ -109,7 +109,7 @@ def main():
     
     df = load_data()
     if df is None:
-        st.error("Données absentes.")
+        st.info("⌛ En attente de données... Le dossier a été nettoyé. Veuillez patienter pendant la synchronisation ou rafraîchir la page.")
         return
 
     # Filters
