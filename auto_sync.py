@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime
 
 # Import modules from current directory
@@ -15,12 +17,45 @@ except ImportError:
     from transaction_processor import process_file
     from reconcile_data import reconcile_data
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION EMAIL (VIA SECRETS) ---
+try:
+    import secrets_mfs
+    SMTP_SERVER = secrets_mfs.SMTP_SERVER
+    SMTP_PORT = secrets_mfs.SMTP_PORT
+    EMAIL_ADDRESS = secrets_mfs.EMAIL_ADDRESS
+    EMAIL_PASSWORD = secrets_mfs.EMAIL_PASSWORD
+    EMAIL_CONFIGURED = True
+except ImportError:
+    print("[ATTENTION] Fichier secrets_mfs.py introuvable. Les emails ne seront pas envoyes.")
+    EMAIL_CONFIGURED = False
+
+# --- CONFIGURATION DOSSIERS ---
 SOURCE_DIRECTORY = r"E:\MFS DATA\2025\Float Rebalancing Act\Listing_Test_MFS"
 DEST_DIRECTORY = r"c:\Users\user\Downloads\r2b\data"
 SUMMARY_FILE = r'c:\Users\user\Downloads\r2b\summary.xlsx'
 BATCH_SIZE = 100 # Mise a jour en ligne tous les X fichiers
 IDLE_TIMEOUT = 180 # 3 minutes sans fichier
+
+def send_email_notification(subject, body):
+    """Envoie un email via Gmail"""
+    if not EMAIL_CONFIGURED:
+        print(f"   [EMAIL SKIP] Pas de configuration : {subject}")
+        return
+
+    try:
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = EMAIL_ADDRESS
+        msg['To'] = EMAIL_ADDRESS
+
+        print(f"   [EMAIL] Tentative d'envoi : {subject}...")
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_ADDRESS, EMAIL_ADDRESS, msg.as_string())
+        print("   [EMAIL] Envoye avec succes !")
+    except Exception as e:
+        print(f"   [EMAIL] Erreur d'envoi : {e}")
 
 def git_push_updates(count):
     print(f"\n[SAUVEGARDE] Envoi du lot {count} vers Internet...")
@@ -33,13 +68,28 @@ def git_push_updates(count):
         subprocess.run(["git", "push", "origin", "master"], check=False)
         subprocess.run(["git", "push", "--force", "hf", "master:main"], check=False)
         print("[SUCCES] Sauvegarde en ligne terminee !")
+        
+        # Envoi Email
+        send_email_notification(
+            f"Mise a jour Dashboard MFS - Lot {count}",
+            f"Le script a traite {count} fichiers avec succes.\nLes donnees sont a jour sur le Dashboard.\n\nHeure : {datetime.now()}"
+        )
+        
     except Exception as e:
         print(f"[ERREUR] Echec de l'envoi Git : {e}")
+        send_email_notification(
+            f"ERREUR Dashboard MFS - Lot {count}",
+            f"Echec de la sauvegarde Git.\nErreur : {e}\n\nHeure : {datetime.now()}"
+        )
 
 def main():
-    print("=== SYNCHRONISATION INTELLIGENTE (CYCLE CONTINU) ===")
+    print("=== SYNCHRONISATION INTELLIGENTE (CYCLE CONTINU + EMAIL SECURISE) ===")
     print(f"Surveillance de : {SOURCE_DIRECTORY}")
     print(f"Destination : {DEST_DIRECTORY}")
+    if EMAIL_CONFIGURED:
+        print(f"Email configure : {EMAIL_ADDRESS} (via secrets_mfs.py)")
+    else:
+        print("Email NON configure (secrets_mfs.py absent)")
     print("------------------------------------------------")
 
     processed_count = 0
@@ -91,12 +141,11 @@ def main():
                     dest_path = os.path.join(DEST_DIRECTORY, filename)
                     
                     try:
-                        # Force overwrite: Remove dest if exists
+                        # Force overwrite
                         if os.path.exists(dest_path):
                             try:
                                 os.remove(dest_path)
                             except PermissionError:
-                                # Start retrying immediately in next loop if locked
                                 continue
                         
                         shutil.move(source_path, dest_path)
@@ -105,13 +154,12 @@ def main():
                         
                         print(f"\n[{processed_count}] {filename} recu -> Mise a jour...")
                         
-                        # Traitement Local (UPDATE/UPSERT)
+                        # Traitement Local
                         process_file(dest_path)
                         reconcile_data() 
                         print("   [LOCAL] Dashboard mis a jour avec nouvelles valeurs.")
 
                         # Traitement En Ligne (Batch)
-                        # On compte le nombre total de traitements, meme si c'est le meme fichier mis a jour
                         if processed_count % BATCH_SIZE == 0:
                             print(f"   >>> LOT DE {BATCH_SIZE} ATTEINT ! Push Internet...")
                             git_push_updates(processed_count)
