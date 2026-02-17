@@ -4,7 +4,7 @@ emoji: 📈
 colorFrom: yellow
 colorTo: green
 sdk: streamlit
-sdk_version: 1.31.1
+sdk_version: 1.39.0
 app_file: dashboard.py
 pinned: false
 license: mit
