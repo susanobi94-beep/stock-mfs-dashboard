@@ -277,21 +277,22 @@ def main():
             'Manque (Gap)': 'sum'
         }).reset_index()
 
-        # Calculate Achievement Rate (Y axis): (Balance - Target) / Target * 100
+        # Calculate Achievement Rate (Y axis): (Balance / Target) * 100
+        # 100% means Target reached, < 20% means critical rupture
         def calc_realisation_route(row):
             try:
                 b = float(row['Balance'])
                 t = float(row['Montants OOS'])
-                if t <= 0: return 0.0
-                return ((b - t) / t) * 100
+                if t <= 0: return 100.0 if b > 0 else 0.0
+                return (b / t) * 100
             except:
-                return -100.0
+                return 0.0
 
         df_route_matrix['Taux de Réalisation (%)'] = df_route_matrix.apply(calc_realisation_route, axis=1)
         
         # Quadrant Separators
         x_sep = df_route_matrix['Montants OOS'].median() if not df_route_matrix['Montants OOS'].empty else 0
-        y_sep = -20.0 
+        y_sep = 20.0 # Critical threshold at 20%
         
         fig_matrix = px.scatter(
             df_route_matrix,
@@ -301,24 +302,39 @@ def main():
             color='Routes',
             hover_name='Routes',
             text='Routes',
-            labels={'Montants OOS': 'Volume Cible (Retrait)', 'Taux de Réalisation (%)': 'Taux de Réalisation (%)'},
-            size_max=60, # Bigger bubbles for routes
-            template='plotly_white'
+            labels={'Montants OOS': 'Volume Cible Total (FCFA)', 'Taux de Réalisation (%)': 'Taux de Réalisation (%)'},
+            size_max=60,
+            template='plotly_white',
+            range_y=[0, max(110, df_route_matrix['Taux de Réalisation (%)'].max() * 1.1)]
         )
         
-        # Add Quadrant Labels (Annotations)
+        # Quadrant Annotations (P1-P4)
         max_x = df_route_matrix['Montants OOS'].max() * 1.1 if not df_route_matrix.empty else 100
-        fig_matrix.add_annotation(x=max_x*0.8, y=80, text="P3", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
-        fig_matrix.add_annotation(x=max_x*0.1, y=80, text="P4", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
-        fig_matrix.add_annotation(x=max_x*0.8, y=-80, text="P1", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
-        fig_matrix.add_annotation(x=max_x*0.1, y=-80, text="P2", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
+        # Positioning: P1/P2 in [0-20], P3/P4 in [20-100]
+        fig_matrix.add_annotation(x=max_x*0.75, y=60, text="P3", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.25, y=60, text="P4", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.75, y=10, text="P1", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.25, y=10, text="P2", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        
+        # Custom Ticks for Y axis: 0, 5, 10, 15, 20 and 40, 60, 80, 100
+        fig_matrix.update_layout(
+            yaxis = dict(
+                tickmode = 'array',
+                tickvals = [0, 5, 10, 15, 20, 40, 60, 80, 100],
+                ticktext = ['0%', '5%', '10%', '15%', '20%', '40%', '60%', '80%', '100%']
+            )
+        )
         
         # Add Separator Lines
-        fig_matrix.add_hline(y=y_sep, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_matrix.add_hline(y=y_sep, line_dash="dash", line_color="#dc3545", line_width=2, opacity=0.8)
         fig_matrix.add_vline(x=x_sep, line_dash="dash", line_color="gray", opacity=0.5)
         
-        # Add Red highlight for P1 Zone (Bottom Right)
-        fig_matrix.add_vrect(x0=x_sep, x1=max_x, y0=-150, y1=y_sep, fillcolor="red", opacity=0.05, layer="below", line_width=0)
+        # Add Red highlight for "War Zone" (Bottom Right - P1)
+        # P1 = High Volume, Realisation < 20%
+        fig_matrix.add_vrect(x0=x_sep, x1=max_x, y0=0, y1=y_sep, fillcolor="red", opacity=0.08, layer="below", line_width=0)
+        
+        # Add Green highlight for "Safe Zone" (Top - P3/P4)
+        fig_matrix.add_hrect(y0=y_sep, y1=200, fillcolor="green", opacity=0.03, layer="below", line_width=0)
 
         fig_matrix.update_layout(height=600)
         st.plotly_chart(fig_matrix, use_container_width=True)
