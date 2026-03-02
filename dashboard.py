@@ -266,26 +266,58 @@ def main():
     else:
         st.info("Pas de données de routes disponibles.")
 
-    # --- HEATMAP (TREEMAP) OF RUPTURES ---
-    st.markdown('<div class="sub-header">🔥 Heatmap : Concentration des Ruptures (Sites & Zones)</div>', unsafe_allow_html=True)
+    # --- MATRICE DE PRIORITÉ MFS (BUBBLE CHART) ---
+    st.markdown('<div class="sub-header">📊 Matrice de Priorité MFS (Cible vs Réalisation)</div>', unsafe_allow_html=True)
     
-    # Prepare data for Treemap: only show Ruptures & Tensions
-    df_heat = df_filtered[df_filtered['Statut'].isin(["🔴 RUPTURE", "🟠 TENSION"])]
-    
-    if not df_heat.empty:
-        # We value the "Gap" (Manque) to size the blocks
-        fig_heat = px.treemap(
-            df_heat, 
-            path=[px.Constant("Marché Global"), 'Site', 'Sous-Zone'], 
-            values='Manque (Gap)',
-            color='Statut',
-            color_discrete_map={"🔴 RUPTURE": "#d32f2f", "🟠 TENSION": "#f57c00"},
-            hover_data=['Noms', 'Balance', 'Montants OOS']
+    if not df_filtered.empty:
+        # Calculate Achievement Rate (Y axis): (Balance - Target) / Target * 100
+        # If Target is 0, we'll set it to 0 or something meaningful
+        def calc_realisation(row):
+            try:
+                b = float(row['Balance'])
+                t = float(row['Montants OOS'])
+                if t <= 0: return 0.0
+                return ((b - t) / t) * 100
+            except:
+                return -100.0
+
+        df_matrix = df_filtered.copy()
+        df_matrix['Taux de Réalisation (%)'] = df_matrix.apply(calc_realisation, axis=1)
+        
+        # Quadrant Separators
+        x_sep = df_matrix['Montants OOS'].median() if not df_matrix['Montants OOS'].empty else 0
+        y_sep = -20.0 # Standard threshold in the image seems to be around here or 0
+        
+        fig_matrix = px.scatter(
+            df_matrix,
+            x='Montants OOS',
+            y='Taux de Réalisation (%)',
+            size='Manque (Gap)',
+            color='Routes',
+            hover_name='Noms',
+            text='Routes' if len(df_matrix) < 20 else None,
+            labels={'Montants OOS': 'Volume Cible (Retrait)', 'Taux de Réalisation (%)': 'Taux de Réalisation (%)'},
+            size_max=40,
+            template='plotly_white'
         )
-        fig_heat.update_layout(margin=dict(t=0, l=0, r=0, b=0))
-        st.plotly_chart(fig_heat, use_container_width=True)
+        
+        # Add Quadrant Labels (Annotations)
+        fig_matrix.add_annotation(x=df_matrix['Montants OOS'].max()*0.8, y=80, text="P3", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
+        fig_matrix.add_annotation(x=df_matrix['Montants OOS'].max()*0.1, y=80, text="P4", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
+        fig_matrix.add_annotation(x=df_matrix['Montants OOS'].max()*0.8, y=-80, text="P1", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
+        fig_matrix.add_annotation(x=df_matrix['Montants OOS'].max()*0.1, y=-80, text="P2", showarrow=False, font=dict(size=40, color="rgba(0,0,0,0.1)"))
+        
+        # Add Separator Lines
+        fig_matrix.add_hline(y=y_sep, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_matrix.add_vline(x=x_sep, line_dash="dash", line_color="gray", opacity=0.5)
+        
+        # Add Red highlight for P1 Zone (Bottom Right)
+        fig_matrix.add_vrect(x0=x_sep, x1=df_matrix['Montants OOS'].max()*1.1, y0=-150, y1=y_sep, fillcolor="red", opacity=0.05, layer="below", line_width=0)
+
+        fig_matrix.update_layout(height=600)
+        st.plotly_chart(fig_matrix, use_container_width=True)
     else:
-        st.success("Aucune rupture ou tension détectée dans cette sélection.")
+        st.info("Aucune donnée pour la matrice.")
 
     # --- Charts Data Prep ---
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
