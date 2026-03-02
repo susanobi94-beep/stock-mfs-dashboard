@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import plotly.express as px
 import os
 from datetime import datetime, timedelta
 
@@ -264,6 +265,27 @@ def main():
         st.altair_chart(chart_routes + text_routes, use_container_width=True)
     else:
         st.info("Pas de données de routes disponibles.")
+
+    # --- HEATMAP (TREEMAP) OF RUPTURES ---
+    st.markdown('<div class="sub-header">🔥 Heatmap : Concentration des Ruptures (Sites & Zones)</div>', unsafe_allow_html=True)
+    
+    # Prepare data for Treemap: only show Ruptures & Tensions
+    df_heat = df_filtered[df_filtered['Statut'].isin(["🔴 RUPTURE", "🟠 TENSION"])]
+    
+    if not df_heat.empty:
+        # We value the "Gap" (Manque) to size the blocks
+        fig_heat = px.treemap(
+            df_heat, 
+            path=[px.Constant("Marché Global"), 'Site', 'Sous-Zone'], 
+            values='Manque (Gap)',
+            color='Statut',
+            color_discrete_map={"🔴 RUPTURE": "#d32f2f", "🟠 TENSION": "#f57c00"},
+            hover_data=['Noms', 'Balance', 'Montants OOS']
+        )
+        fig_heat.update_layout(margin=dict(t=0, l=0, r=0, b=0))
+        st.plotly_chart(fig_heat, use_container_width=True)
+    else:
+        st.success("Aucune rupture ou tension détectée dans cette sélection.")
 
     # --- Charts Data Prep ---
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
