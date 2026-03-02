@@ -271,52 +271,46 @@ def main():
     
     if not df_filtered.empty:
         # AGGREGATE BY ROUTE
-        df_route_matrix = df_filtered.groupby('Routes').agg({
-            'Montants OOS': 'sum',
-            'Balance': 'sum',
-            'Manque (Gap)': 'sum'
-        }).reset_index()
+        df_route_matrix = df_filtered.groupby('Routes').apply(
+            lambda x: pd.Series({
+                'Montants OOS': x['Montants OOS'].sum(),
+                'Balance': x['Balance'].sum(),
+                'Manque (Gap)': x['Manque (Gap)'].sum(),
+                'Ruptures': x[x['Statut'] == "🔴 RUPTURE"].shape[0],
+                'Total POS': len(x)
+            })
+        ).reset_index()
 
-        # Calculate Achievement Rate (Y axis): (Balance / Target) * 100
-        # 100% means Target reached, < 20% means critical rupture
-        def calc_realisation_route(row):
-            try:
-                b = float(row['Balance'])
-                t = float(row['Montants OOS'])
-                if t <= 0: return 100.0 if b > 0 else 0.0
-                return (b / t) * 100
-            except:
-                return 0.0
-
-        df_route_matrix['Taux de Réalisation (%)'] = df_route_matrix.apply(calc_realisation_route, axis=1)
+        # Calculate Rupture Rate (Y axis): (POS in Rupture / Total POS) * 100
+        df_route_matrix['Taux de Rupture (%)'] = (df_route_matrix['Ruptures'] / df_route_matrix['Total POS'] * 100).fillna(0)
         
         # Quadrant Separators
         x_sep = df_route_matrix['Montants OOS'].median() if not df_route_matrix['Montants OOS'].empty else 0
-        y_sep = 20.0 # Critical threshold at 20%
+        y_sep = 20.0 # Standard threshold
         
         fig_matrix = px.scatter(
             df_route_matrix,
             x='Montants OOS',
-            y='Taux de Réalisation (%)',
+            y='Taux de Rupture (%)',
             size='Manque (Gap)',
             color='Routes',
             hover_name='Routes',
             text='Routes',
-            labels={'Montants OOS': 'Volume Cible Total (FCFA)', 'Taux de Réalisation (%)': 'Taux de Réalisation (%)'},
+            labels={'Montants OOS': 'Volume Cible Total (FCFA)', 'Taux de Rupture (%)': 'Taux de Rupture (%)'},
             size_max=60,
             template='plotly_white',
-            range_y=[0, max(110, df_route_matrix['Taux de Réalisation (%)'].max() * 1.1)]
+            range_y=[105, -5] # INVERTED: 0% at Top, 100% at Bottom
         )
         
         # Quadrant Annotations (P1-P4)
+        # Inverted Scale: P3/P4 (Good) at Top (< 20%), P1/P2 (Bad) at Bottom (> 20%)
         max_x = df_route_matrix['Montants OOS'].max() * 1.1 if not df_route_matrix.empty else 100
-        # Positioning: P1/P2 in [0-20], P3/P4 in [20-100]
-        fig_matrix.add_annotation(x=max_x*0.75, y=60, text="P3", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
-        fig_matrix.add_annotation(x=max_x*0.25, y=60, text="P4", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
-        fig_matrix.add_annotation(x=max_x*0.75, y=10, text="P1", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
-        fig_matrix.add_annotation(x=max_x*0.25, y=10, text="P2", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.75, y=10, text="P3", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.25, y=10, text="P4", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.75, y=80, text="P1", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
+        fig_matrix.add_annotation(x=max_x*0.25, y=80, text="P2", showarrow=False, font=dict(size=50, color="rgba(0,0,0,0.05)"))
         
-        # Custom Ticks for Y axis: 0, 5, 10, 15, 20 and 40, 60, 80, 100
+        # Custom Ticks for Y axis
         fig_matrix.update_layout(
             yaxis = dict(
                 tickmode = 'array',
@@ -329,12 +323,9 @@ def main():
         fig_matrix.add_hline(y=y_sep, line_dash="dash", line_color="#dc3545", line_width=2, opacity=0.8)
         fig_matrix.add_vline(x=x_sep, line_dash="dash", line_color="gray", opacity=0.5)
         
-        # Add Red highlight for "War Zone" (Bottom Right - P1)
-        # P1 = High Volume, Realisation < 20%
-        fig_matrix.add_vrect(x0=x_sep, x1=max_x, y0=0, y1=y_sep, fillcolor="red", opacity=0.08, layer="below", line_width=0)
-        
-        # Add Green highlight for "Safe Zone" (Top - P3/P4)
-        fig_matrix.add_hrect(y0=y_sep, y1=200, fillcolor="green", opacity=0.03, layer="below", line_width=0)
+        # Highlight Crisis Zone (P1: Bottom Right)
+        # Since axis is inverted, Y goes from y_sep(20) down to 100
+        fig_matrix.add_vrect(x0=x_sep, x1=max_x, y0=y_sep, y1=100, fillcolor="red", opacity=0.08, layer="below", line_width=0)
 
         fig_matrix.update_layout(height=600)
         st.plotly_chart(fig_matrix, use_container_width=True)
