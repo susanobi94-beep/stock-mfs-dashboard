@@ -133,33 +133,67 @@ def main():
         df_filtered = df_filtered[df_filtered['Sous-Zone'] == selected_sz]
 
     # --- Header ---
-    st.markdown('<div class="header-style">PILOTAGE DU STOCK MFS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-style">WAR ROOM : PILOTAGE DU STOCK MFS</div>', unsafe_allow_html=True)
 
-    # --- KPIs ---
+    # --- Calculations ---
+    df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
+    
+    # NEW STATUS LOGIC
+    # Rupture: < 10% target
+    # Tension: 10% - 40% target
+    # Confort: 40% - 120% target
+    # Surstock: > 120% target
+    def classify_war_room(row):
+        try:
+            balance = float(row['Balance'])
+            target = float(row['Montants OOS'])
+            if target <= 0: return "Surstock" # No target means any balance is surplus
+            
+            ratio = balance / target
+            if ratio < 0.10: return "🔴 RUPTURE"
+            if ratio < 0.40: return "🟠 TENSION"
+            if ratio <= 1.20: return "🟢 CONFORT"
+            return "🔵 SURSTOCK"
+        except:
+            return "UNKNOWN"
+
+    df_filtered['Statut'] = df_filtered.apply(classify_war_room, axis=1)
+    
+    # Aggregates
     total_balance = df_filtered['Balance'].sum()
     total_oos = df_filtered['Montants OOS'].sum()
     total_pos = len(df_filtered)
-    pos_rupture = df_filtered[df_filtered['Jours de Stock'] < 0.5].shape[0]
+    
+    pos_rupture = df_filtered[df_filtered['Statut'] == "🔴 RUPTURE"].shape[0]
+    pos_tension = df_filtered[df_filtered['Statut'] == "🟠 TENSION"].shape[0]
     rupture_rate_val = (pos_rupture / total_pos * 100) if total_pos > 0 else 0
-    global_days = (total_balance / total_oos) if total_oos > 0 else 0
-
+    manque_a_gagner = df_filtered['Manque (Gap)'].sum()
+    
+    # --- KPIs ---
     kp1, kp2, kp3, kp4 = st.columns(4)
-    with kp1: display_kpi_card("💵 Stock Actuel", f"{total_balance/1_000_000:.1f} M", "FCFA Disponible")
-    with kp2: display_kpi_card("🎯 Objectif Cible", f"{total_oos/1_000_000:.1f} M", "Besoin Théorique")
     
-    rate_color = "#dc3545" if rupture_rate_val > 20 else "#198754"
-    with kp3: display_kpi_card("⚠️ Taux Rupture", f"{rupture_rate_val:.1f}%", f"{pos_rupture} POS Critiques", color=rate_color)
+    with kp1: 
+        display_kpi_card("⚠️ TAUX DE RUPTURE", f"{rupture_rate_val:.1f}%", f"{pos_rupture} POS < 10% Cible", color="#dc3545")
     
-    with kp4: display_kpi_card("⏳ Couverture", f"{global_days:.1f} J", "Cible: 1.0 Jour")
+    with kp2:
+        tension_pct = (pos_tension / total_pos * 100) if total_pos > 0 else 0
+        display_kpi_card("🟠 ZONE DE TENSION", f"{tension_pct:.1f}%", f"{pos_tension} POS à recharger vite", color="#f57c00")
+        
+    with kp3:
+        display_kpi_card("📉 MANQUE À GAGNER", f"{manque_a_gagner/1_000_000:.2f} M", "FCFA à Injecter", color="#212529")
+    
+    with kp4:
+        global_days = (total_balance / total_oos) if total_oos > 0 else 0
+        display_kpi_card("⏳ COUVERTURE", f"{global_days:.1f} J", "Cible Marché: 1.0 J")
 
     # --- CLUSTER FOCUS ---
     st.markdown('<div class="sub-header">🌍 Performance par Cluster</div>', unsafe_allow_html=True)
     
     def get_cluster_stats(cluster_name):
-        subset = df[df['Site'].astype(str).str.contains(cluster_name, case=False, na=False)]
+        subset = df_filtered[df_filtered['Site'].astype(str).str.contains(cluster_name, case=False, na=False)]
         if subset.empty: return None
         count = len(subset)
-        rupt = subset[subset['Jours de Stock'] < 0.5].shape[0]
+        rupt = subset[subset['Statut'] == "🔴 RUPTURE"].shape[0]
         rate = (rupt / count * 100) if count > 0 else 0
         return rate, count, rupt
 
@@ -200,7 +234,7 @@ def main():
     route_stats = df_filtered.groupby('Routes').apply(
         lambda x: pd.Series({
             'Total POS': len(x),
-            'Ruptures': x[x['Jours de Stock'] < 0.5].shape[0]
+            'Ruptures': x[x['Statut'] == "🔴 RUPTURE"].shape[0]
         })
     ).reset_index()
     
@@ -244,8 +278,7 @@ def main():
         except:
             return "Erreur"
             
-    df_filtered['Statut'] = df_filtered['Jours de Stock'].apply(classify_chart)
-    domain = ["Rupture", "Tension", "Confort", "Surstock", "Erreur"]
+    domain = ["🔴 RUPTURE", "🟠 TENSION", "🟢 CONFORT", "🔵 SURSTOCK", "UNKNOWN"]
     range_ = ["#d32f2f", "#f57c00", "#2e7d32", "#1976d2", "gray"]
 
     # --- CHARTS ROW 1 ---
@@ -347,31 +380,35 @@ def main():
         st.success("✅ Tout est en ordre. Pas de Pareto nécessaire.")
 
     # --- TABLE DETAIL ---
-    st.markdown('<div class="sub-header">📋 Détail Réseau Global</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">📊 Priorités d\'Action Tactique (Top Urgences)</div>', unsafe_allow_html=True)
     
-    def get_global_status(row):
-        d = float(row['Jours de Stock'])
-        gap = float(row['Manque (Gap)'])
-        if gap > 0: return f"🔴 Recharger {gap:,.0f} F"
-        if d < 1.0: return "🟠 Tension"
-        if d <= 3.0: return "🟢 Confort"
-        return "🔵 Surstock"
-
-    df_filtered['Statut_Action'] = df_filtered.apply(get_global_status, axis=1)
+    # Priority sorting: Rupture first, then Tension, then by Gap Size
+    status_order = {"🔴 RUPTURE": 0, "🟠 TENSION": 1, "🟢 CONFORT": 2, "🔵 SURSTOCK": 3, "UNKNOWN": 4}
+    df_filtered['Sort_Order'] = df_filtered['Statut'].map(status_order)
     
-    # Download Button Global
-    csv_global = df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Statut_Action']].to_csv(index=False).encode('utf-8')
+    df_action = df_filtered.sort_values(by=['Sort_Order', 'Manque (Gap)'], ascending=[True, False])
+    
+    # Formatting for display
+    display_cols = ['Numero', 'Noms', 'Site', 'Routes', 'Balance', 'Montants OOS', 'Statut']
+    
+    # Download Button
+    csv_action = df_action[display_cols].to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="📥 Télécharger le Détail Complet (CSV)",
-        data=csv_global,
-        file_name='detail_reseau_global.csv',
+        label="📥 Télécharger le Plan de Route Commercial (CSV)",
+        data=csv_action,
+        file_name='plan_route_commercial.csv',
         mime='text/csv',
     )
     
     st.dataframe(
-        df_filtered[['Numero','Noms','Site','Routes','Balance','Montants OOS','Statut_Action']], 
-        use_container_width=True, 
-        hide_index=True
+        df_action[display_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Balance": st.column_config.NumberColumn(format="%d F"),
+            "Montants OOS": st.column_config.NumberColumn(format="%d F"),
+            "Statut": st.column_config.TextColumn(width="medium")
+        }
     )
 
     # --- HISTORY CHART ---

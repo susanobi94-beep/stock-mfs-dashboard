@@ -55,7 +55,12 @@ def reconcile_data():
             print("Error: 'Agent MSISDN' column not found in OOS file.")
             return
 
-        df_oos['AGENT_MSISDN'] = df_oos['AGENT_MSISDN'].astype(str).str.strip()
+        # Convert AGENT_MSISDN to string without scientific notation
+        df_oos['AGENT_MSISDN'] = pd.to_numeric(df_oos['AGENT_MSISDN'], errors='coerce')
+        # Dropping NaNs if any for the join key
+        df_oos = df_oos.dropna(subset=['AGENT_MSISDN'])
+        # Convert to int then str to remove '.0'
+        df_oos['AGENT_MSISDN'] = df_oos['AGENT_MSISDN'].astype('int64').astype(str).str.strip()
         
         # Deduplicate OOS data
         if df_oos.duplicated(subset=['AGENT_MSISDN']).any():
