@@ -7,8 +7,8 @@ import concurrent.futures
 
 # ================= CONFIGURATION =================
 LOGIN_URL = "https://momocare.mtncameroon.net/"
-USERNAME_REAL = "Nkoung_R"
-PASSWORD_REAL = "Susanoo1994@@Rich20261470"
+USERNAME_REAL = "Nkuiwa_D"
+PASSWORD_REAL = "Secret@12345++"
 AUTH_STATE_FILE = "auth.json"
 NUM_WORKERS = 3
 
