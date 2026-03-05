@@ -39,15 +39,32 @@ def wait_for_overlays(page, timeout_ms=5000):
                 "[data-test='information-modal-ok']",
                 "button:has-text('OK')",
                 "button:has-text('Ok')",
-                ".programmatic-eds-dialog button"
+                ".programmatic-eds-dialog button",
+                ".dialog.show.warning button", # Added specific selector for the warning dialog
+                ".dialog.warning button"       # Fallback for warning dialog
             ]
             found_any = False
             for selector in ok_selectors:
                 btn = page.locator(selector).first
                 if btn.is_visible():
-                    btn.click(timeout=1000)
+                    try:
+                        btn.click(timeout=1000, force=True) # Force click to bypass other invisible overlays
+                    except:
+                        pass
                     found_any = True
                     time.sleep(0.5)
+            
+            # Also check if the warning dialog itself is just there but button is hard to find
+            warning_dialog = page.locator(".dialog.show.warning").first
+            if warning_dialog.is_visible():
+                try:
+                    # Sometimes we just need to click anywhere outside or press escape
+                    page.keyboard.press("Escape")
+                except:
+                    pass
+                found_any = True
+                time.sleep(0.5)
+                
             loader = page.locator(".progress-indicator").first
             if loader.is_visible():
                 found_any = True
