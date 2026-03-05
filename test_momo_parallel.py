@@ -106,9 +106,9 @@ def authenticate_and_save_state():
         page.locator("[data-test=\"login-button\"]").click()
         
         print("\n⏳ ACTION REQUISE : Veuillez entrer le code SMS (OTP) dans la fenêtre du navigateur.")
-        print("⏳ Vous avez 35 secondes...")
+        print("⏳ Vous avez 60 secondes...")
         try:
-            page.get_by_role("textbox", name="Search for account holder").wait_for(timeout=35000)
+            page.get_by_role("textbox", name="Search for account holder").wait_for(timeout=60000)
             print("✅ Connexion réussie et validée !")
             
             # Save Cookies and LocalStorage
@@ -122,7 +122,7 @@ def authenticate_and_save_state():
             print(f"🔒 Session sauvegardée dans {AUTH_STATE_FILE} et {SESSION_STORAGE_FILE}")
             return True
         except Exception as e:
-            print("❌ Échec : Tableau de bord non détecté après 35s. Lancez à nouveau le script.")
+            print("❌ Échec : Tableau de bord non détecté après 60s. Lancez à nouveau le script.")
             return False
 
 def process_chunk(worker_id, numbers_chunk):
