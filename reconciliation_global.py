@@ -188,9 +188,15 @@ def reconcile_data():
         except Exception as h_err:
              print(f"Warning: Could not update history log: {h_err}")
 
-        # Save to Excel
+        # Save to Excel and CSV
         print(f"Saving to {OUTPUT_FILE}...")
         df_final.to_excel(OUTPUT_FILE, index=False)
+        
+        # Also save as CSV for Hugging Face compatibility (binary files are often rejected)
+        csv_output = OUTPUT_FILE.replace('.xlsx', '.csv')
+        df_final.to_csv(csv_output, index=False)
+        print(f"CSV copy saved to {csv_output}")
+        
         print("Reconciliation complete.")
 
     except Exception as e:

@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 
 # Configuration
-DATA_FILE = 'reconciliation.xlsx'
+DATA_FILE = 'reconciliation.csv'
 HISTORY_FILE = 'history.csv'
 LOGO_FILE = 'logo.png'
 
@@ -68,9 +68,16 @@ st.markdown("""
 
 def load_data():
     if not os.path.exists(DATA_FILE):
+        # Fallback to .xlsx if .csv is missing locally
+        fallback = DATA_FILE.replace('.csv', '.xlsx')
+        if os.path.exists(fallback):
+             try:
+                 df = pd.read_excel(fallback)
+                 return df
+             except: return None
         return None
     try:
-        df = pd.read_excel(DATA_FILE)
+        df = pd.read_csv(DATA_FILE)
         # Coercion
         for col in ['Balance', 'Montants OOS', 'Jours de Stock', 'Valeur Calculee']:
             if col in df.columns:
