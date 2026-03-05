@@ -10,6 +10,7 @@ LOGIN_URL = "https://momocare.mtncameroon.net/"
 USERNAME_REAL = "Nkuiwa_D"
 PASSWORD_REAL = "Secret@12345++"
 AUTH_STATE_FILE = "auth.json"
+SESSION_STORAGE_FILE = "session.json"
 NUM_WORKERS = 3
 
 # FILE PATHS
@@ -109,8 +110,16 @@ def authenticate_and_save_state():
         try:
             page.get_by_role("textbox", name="Search for account holder").wait_for(timeout=35000)
             print("✅ Connexion réussie et validée !")
+            
+            # Save Cookies and LocalStorage
             context.storage_state(path=AUTH_STATE_FILE)
-            print(f"🔒 Session sauvegardée dans {AUTH_STATE_FILE}")
+            
+            # Save SessionStorage (often required by SPA apps like Ericsson)
+            session_data = page.evaluate("() => JSON.stringify(sessionStorage)")
+            with open(SESSION_STORAGE_FILE, "w") as f:
+                f.write(session_data)
+                
+            print(f"🔒 Session sauvegardée dans {AUTH_STATE_FILE} et {SESSION_STORAGE_FILE}")
             return True
         except Exception as e:
             print("❌ Échec : Tableau de bord non détecté après 35s. Lancez à nouveau le script.")
@@ -120,11 +129,27 @@ def process_chunk(worker_id, numbers_chunk):
     print(f"[Worker {worker_id}] Démarrage avec {len(numbers_chunk)} numéros.")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(storage_state=AUTH_STATE_FILE, accept_downloads=True)
+        # Use standard User-Agent to bypass headless bot detection Firewalls
+        context = browser.new_context(
+            storage_state=AUTH_STATE_FILE, 
+            accept_downloads=True,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
         
+        # Load SessionStorage to bypass Login
+        try:
+            with open(SESSION_STORAGE_FILE, "r") as f:
+                session_data = f.read()
+            # Must go to the domain first before injecting sessionStorage
+            page.goto(LOGIN_URL)
+            page.evaluate(f"data => {{ const parsed = JSON.parse(data); for (let k in parsed) sessionStorage.setItem(k, parsed[k]); }}", session_data)
+        except Exception as e:
+            print(f"[Worker {worker_id}] Warning: Could not inject sessionStorage: {e}")
+            
         # Aller à la page d'accueil pour commencer
         page.goto("https://momocare.mtncameroon.net/home")
+        page.wait_for_load_state("networkidle")
         
         for index, num in enumerate(numbers_chunk):
             print(f"[Worker {worker_id}] MSISDN {index + 1}/{len(numbers_chunk)} : {num}")
