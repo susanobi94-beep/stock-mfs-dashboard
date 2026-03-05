@@ -96,29 +96,11 @@ def main():
     pending_push = False
     last_activity_time = time.time()
 
-    # 1. Nettoyage initial
-    if os.path.exists(DEST_DIRECTORY):
-        print("Nettoyage du dossier 'data' local...")
-        for f in os.listdir(DEST_DIRECTORY):
-            fp = os.path.join(DEST_DIRECTORY, f)
-            if os.path.isfile(fp) and fp.endswith('.csv'):
-                try:
-                    os.remove(fp)
-                except Exception:
-                    pass
-        if os.path.exists(SUMMARY_FILE):
-             try:
-                 os.remove(SUMMARY_FILE)
-             except Exception:
-                 pass
-        if os.path.exists("reconciliation.xlsx"):
-             try:
-                 os.remove("reconciliation.xlsx")
-                 print("Dashboard remis a zero.")
-             except Exception:
-                 pass
-    else:
+    # 1. Preparation du dossier de travail
+    if not os.path.exists(DEST_DIRECTORY):
         os.makedirs(DEST_DIRECTORY)
+    else:
+        print("Dossier 'data' local detecte. Utilisation du mode incremental.")
 
     # 2. Boucle de surveillance
     print(f"En attente de fichiers... (Mode Cycle Infini)")

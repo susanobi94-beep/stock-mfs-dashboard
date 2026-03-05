@@ -84,12 +84,15 @@ def update_summary_upsert(date, number, name, balance):
         else:
             df = pd.DataFrame(columns=columns)
         
-        # Ensure Number is string for comparison
+        # Ensure Number is string and clean
         number = str(number).strip()
+        
         if 'Number' in df.columns:
+            # Drop rows with empty Numbers just in case
+            df = df.dropna(subset=['Number'])
             df['Number'] = df['Number'].astype(str).str.strip()
         
-        # Check if number exists
+        # Check if number exists (case insensitive and stripped)
         mask = df['Number'] == number
         
         new_row = {
@@ -101,19 +104,17 @@ def update_summary_upsert(date, number, name, balance):
         
         if mask.any():
             # Update existing row
-            # We use the index of the first match
             idx = df[mask].index[0]
             df.loc[idx, 'Date'] = date
             df.loc[idx, 'Balance'] = float(balance) if balance else 0
-            # Update name only if it was unknown or strictly better? 
-            # Let's assume new file has correct name.
             if name and name != "Unknown":
                 df.loc[idx, 'Name'] = name
-            # print(f"   -> Updated existing record for {number}")
         else:
             # Append new row
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-            # print(f"   -> Added new record for {number}")
+            
+        # Final safety check: drop any unexpected duplicates before saving
+        df = df.drop_duplicates(subset=['Number'], keep='last')
             
         # Save back
         df.to_excel(OUTPUT_FILE, index=False)
