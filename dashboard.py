@@ -67,30 +67,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def load_data():
-    if not os.path.exists(DATA_FILE):
-        # Fallback to .xlsx if .csv is missing locally
+    df = None
+    if os.path.exists(DATA_FILE):
+        try:
+            df = pd.read_csv(DATA_FILE)
+        except Exception as e:
+            st.error(f"Erreur chargement CSV: {e}")
+            
+    if df is None:
         fallback = DATA_FILE.replace('.csv', '.xlsx')
         if os.path.exists(fallback):
              try:
                  df = pd.read_excel(fallback)
-                 return df
-             except: return None
-        return None
-    try:
-        df = pd.read_csv(DATA_FILE)
-        # Coercion
+             except Exception as e:
+                 st.error(f"Erreur chargement XLSX fallback: {e}")
+                 return None
+        else:
+            return None
+
+    # Coercion (Applies to both CSV and XLSX)
+    if df is not None:
         for col in ['Balance', 'Montants OOS', 'Jours de Stock', 'Valeur Calculee']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         for col in ['Site', 'Routes', 'Sous-Zone', 'Noms']:
              if col in df.columns:
-                 df[col] = df[col].astype(str).replace('nan', 'Inconnu')
+                 df[col] = df[col].astype(str).replace(['nan', 'NaN', 'None', ''], 'Inconnu')
         if 'Numero' in df.columns:
             df['Numero'] = pd.to_numeric(df['Numero'], errors='coerce').fillna(0).astype('int64')
-        return df
-    except Exception as e:
-        st.error(f"Erreur chargement: {e}")
-        return None
+            
+    return df
 
 def load_history():
     if not os.path.exists(HISTORY_FILE):
@@ -121,20 +127,20 @@ def main():
         return
 
     # Filters
-    all_sites = ["Tous"] + sorted(list(df['Site'].dropna().unique()))
+    all_sites = ["Tous"] + sorted(list(df['Site'].dropna().astype(str).unique()))
     selected_site = st.sidebar.selectbox("Filtre Niveau 1 : Site", all_sites)
     
     df_filtered = df.copy()
     if selected_site != "Tous":
         df_filtered = df[df['Site'] == selected_site]
         
-    available_routes = ["Tous"] + sorted(list(df_filtered['Routes'].unique()))
+    available_routes = ["Tous"] + sorted(list(df_filtered['Routes'].dropna().astype(str).unique()))
     selected_route = st.sidebar.selectbox("Filtre Niveau 2 : Route Distribution", available_routes)
     
     if selected_route != "Tous":
         df_filtered = df_filtered[df_filtered['Routes'] == selected_route]
 
-    available_sz = ["Tous"] + sorted(list(df_filtered['Sous-Zone'].unique()))
+    available_sz = ["Tous"] + sorted(list(df_filtered['Sous-Zone'].dropna().astype(str).unique()))
     selected_sz = st.sidebar.selectbox("Filtre Niveau 3 : Sous-Zone / PDV", available_sz)
     
     if selected_sz != "Tous":
