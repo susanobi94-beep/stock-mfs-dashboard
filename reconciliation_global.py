@@ -136,7 +136,8 @@ def reconcile_data():
             'Balance': 'Balance',
             'Valeur Calculee': 'Valeur Calculee',
             'Jours de Stock': 'Jours de Stock',
-            'Site': 'Site'
+            'Site': 'Site',
+            'segment_group': 'Segment'
         }
         
         # Verify columns exist

@@ -90,7 +90,7 @@ def load_data():
         for col in ['Balance', 'Montants OOS', 'Jours de Stock', 'Valeur Calculee']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        for col in ['Site', 'Routes', 'Sous-Zone', 'Noms']:
+        for col in ['Site', 'Routes', 'Sous-Zone', 'Noms', 'Segment']:
              if col in df.columns:
                  df[col] = df[col].astype(str).replace(['nan', 'NaN', 'None', ''], 'Inconnu')
         if 'Numero' in df.columns:
@@ -207,9 +207,25 @@ def main():
         subset = df_filtered[df_filtered['Site'].astype(str).str.contains(cluster_name, case=False, na=False)]
         if subset.empty: return None
         count = len(subset)
-        rupt = subset[subset['Statut'] == "🔴 RUPTURE"].shape[0]
+        rupt_df = subset[subset['Statut'] == "🔴 RUPTURE"]
+        rupt = rupt_df.shape[0]
         rate = (rupt / count * 100) if count > 0 else 0
-        return rate, count, rupt
+        
+        # Segments stats
+        stats_dict = {'rate': rate, 'count': count, 'rupt': rupt}
+        if 'Segment' in subset.columns:
+            stats_dict['hvc_out'] = rupt_df[rupt_df['Segment'] == 'HVC'].shape[0]
+            stats_dict['hvc_tot'] = subset[subset['Segment'] == 'HVC'].shape[0]
+            stats_dict['mvc_out'] = rupt_df[rupt_df['Segment'] == 'MVC'].shape[0]
+            stats_dict['mvc_tot'] = subset[subset['Segment'] == 'MVC'].shape[0]
+            stats_dict['lvc_out'] = rupt_df[rupt_df['Segment'] == 'LVC'].shape[0]
+            stats_dict['lvc_tot'] = subset[subset['Segment'] == 'LVC'].shape[0]
+        else:
+            stats_dict['hvc_out'] = stats_dict['hvc_tot'] = 0
+            stats_dict['mvc_out'] = stats_dict['mvc_tot'] = 0
+            stats_dict['lvc_out'] = stats_dict['lvc_tot'] = 0
+            
+        return stats_dict
 
     c_sic_stats = get_cluster_stats("Cite Sic")
     c_ndog_stats = get_cluster_stats("Ndogbong")
@@ -217,8 +233,20 @@ def main():
     cl1, cl2 = st.columns(2)
     
     def render_cluster_card(name, stats):
-        rate, count, rupt = stats
+        rate = stats['rate']
+        count = stats['count']
+        rupt = stats['rupt']
         color_bar = "red" if rate > 20 else "green"
+        
+        # Small HTML for segments
+        segments_html = f"""
+        <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:11px; color:#555; text-align:center;">
+            <div style="flex:1;"><b>HVC:</b> <span style="color:#dc3545;">{stats['hvc_out']}</span> / {stats['hvc_tot']}</div>
+            <div style="flex:1; border-left:1px solid #ccc; border-right:1px solid #ccc;"><b>MVC:</b> <span style="color:#dc3545;">{stats['mvc_out']}</span> / {stats['mvc_tot']}</div>
+            <div style="flex:1;"><b>LVC:</b> <span style="color:#dc3545;">{stats['lvc_out']}</span> / {stats['lvc_tot']}</div>
+        </div>
+        """
+        
         st.markdown(f"""
         <div class="cluster-card" style="border-left-color: {color_bar};">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -234,6 +262,7 @@ def main():
             <div style="background:#eee; height:8px; width:100%; margin-top:10px; border-radius:4px;">
                 <div style="background:{color_bar}; height:8px; width:{min(rate, 100)}%; border-radius:4px;"></div>
             </div>
+            {segments_html}
         </div>
         """, unsafe_allow_html=True)
 
