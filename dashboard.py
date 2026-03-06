@@ -153,8 +153,8 @@ def main():
     df_filtered['Manque (Gap)'] = df_filtered.apply(lambda row: max(0.0, float(row['Montants OOS']) - float(row['Balance'])), axis=1)
     
     # NEW STATUS LOGIC
-    # Rupture: < 10% target
-    # Tension: 10% - 40% target
+    # Rupture: <= 20% target
+    # Tension: 20% - 40% target
     # Confort: 40% - 120% target
     # Surstock: > 120% target
     def classify_war_room(row):
@@ -164,7 +164,7 @@ def main():
             if target <= 0: return "Surstock" # No target means any balance is surplus
             
             ratio = balance / target
-            if ratio < 0.10: return "🔴 RUPTURE"
+            if ratio <= 0.20: return "🔴 RUPTURE"
             if ratio < 0.40: return "🟠 TENSION"
             if ratio <= 1.20: return "🟢 CONFORT"
             return "🔵 SURSTOCK"
@@ -187,7 +187,7 @@ def main():
     kp1, kp2, kp3, kp4 = st.columns(4)
     
     with kp1: 
-        display_kpi_card("⚠️ TAUX DE RUPTURE", f"{rupture_rate_val:.1f}%", f"{pos_rupture} POS < 10% Cible", color="#dc3545")
+        display_kpi_card("⚠️ TAUX DE RUPTURE", f"{rupture_rate_val:.1f}%", f"{pos_rupture} POS <= 20% Cible", color="#dc3545")
     
     with kp2:
         tension_pct = (pos_tension / total_pos * 100) if total_pos > 0 else 0
@@ -214,12 +214,13 @@ def main():
         # Segments stats
         stats_dict = {'rate': rate, 'count': count, 'rupt': rupt}
         if 'Segment' in subset.columns:
-            stats_dict['hvc_out'] = rupt_df[rupt_df['Segment'] == 'HVC'].shape[0]
-            stats_dict['hvc_tot'] = subset[subset['Segment'] == 'HVC'].shape[0]
-            stats_dict['mvc_out'] = rupt_df[rupt_df['Segment'] == 'MVC'].shape[0]
-            stats_dict['mvc_tot'] = subset[subset['Segment'] == 'MVC'].shape[0]
-            stats_dict['lvc_out'] = rupt_df[rupt_df['Segment'] == 'LVC'].shape[0]
-            stats_dict['lvc_tot'] = subset[subset['Segment'] == 'LVC'].shape[0]
+            subset['Segment'] = subset['Segment'].astype(str)
+            stats_dict['hvc_out'] = rupt_df[rupt_df['Segment'].str.contains('HVC', case=False, na=False)].shape[0]
+            stats_dict['hvc_tot'] = subset[subset['Segment'].str.contains('HVC', case=False, na=False)].shape[0]
+            stats_dict['mvc_out'] = rupt_df[rupt_df['Segment'].str.contains('MVC', case=False, na=False)].shape[0]
+            stats_dict['mvc_tot'] = subset[subset['Segment'].str.contains('MVC', case=False, na=False)].shape[0]
+            stats_dict['lvc_out'] = rupt_df[rupt_df['Segment'].str.contains('LVC', case=False, na=False)].shape[0]
+            stats_dict['lvc_tot'] = subset[subset['Segment'].str.contains('LVC', case=False, na=False)].shape[0]
         else:
             stats_dict['hvc_out'] = stats_dict['hvc_tot'] = 0
             stats_dict['mvc_out'] = stats_dict['mvc_tot'] = 0
@@ -240,10 +241,10 @@ def main():
         
         # Small HTML for segments
         segments_html = f"""
-        <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:11px; color:#555; text-align:center;">
-            <div style="flex:1;"><b>HVC:</b> <span style="color:#dc3545;">{stats['hvc_out']}</span> / {stats['hvc_tot']}</div>
-            <div style="flex:1; border-left:1px solid #ccc; border-right:1px solid #ccc;"><b>MVC:</b> <span style="color:#dc3545;">{stats['mvc_out']}</span> / {stats['mvc_tot']}</div>
-            <div style="flex:1;"><b>LVC:</b> <span style="color:#dc3545;">{stats['lvc_out']}</span> / {stats['lvc_tot']}</div>
+        <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:15px; color:#333; text-align:center; font-weight:500;">
+            <div style="flex:1;"><b>HVC:</b> <span style="color:#dc3545; font-size:17px; font-weight:bold;">{stats['hvc_out']}</span> / {stats['hvc_tot']}</div>
+            <div style="flex:1; border-left:1px solid #ccc; border-right:1px solid #ccc;"><b>MVC:</b> <span style="color:#dc3545; font-size:17px; font-weight:bold;">{stats['mvc_out']}</span> / {stats['mvc_tot']}</div>
+            <div style="flex:1;"><b>LVC:</b> <span style="color:#dc3545; font-size:17px; font-weight:bold;">{stats['lvc_out']}</span> / {stats['lvc_tot']}</div>
         </div>
         """
         
