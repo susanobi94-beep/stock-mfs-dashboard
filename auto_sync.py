@@ -61,8 +61,7 @@ def git_push_updates(count):
     print(f"\n[SAUVEGARDE] Envoi du lot {count} vers Internet...")
     try:
         subprocess.run(["git", "add", "data/*.csv"], check=False)
-        subprocess.run(["git", "add", "summary.xlsx"], check=False)
-        subprocess.run(["git", "add", "reconciliation.xlsx"], check=False)
+        subprocess.run(["git", "add", "reconciliation.csv"], check=False)
         subprocess.run(["git", "add", "history.csv"], check=False)
         subprocess.run(["git", "commit", "-m", f"Auto-sync batch {count}"], check=False)
         subprocess.run(["git", "push", "origin", "master"], check=False)
